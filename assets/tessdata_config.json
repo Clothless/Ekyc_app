@@ -1,0 +1,8 @@
+
+{
+  "psm": "6",
+  "oem": "1",
+  "preserve_interword_spaces": "1",
+  "tessedit_char_whitelist": "ءآأؤإئابةتثجحخدذرزسشصضطظعغفقكلمنهوىيى",
+  "tessdata": "assets/tessdata/"
+}
