@@ -332,7 +332,7 @@ class _PassportState extends State<Passport> {
       final index = _ocrText.indexOf(keyword);
       if (index != -1) {
         final textAfter = _ocrText.substring(index + keyword.length);
-        final match = RegExp(r'\b[A-Za-z0-9]{9}\b').firstMatch(textAfter);
+        final match = RegExp(r'\d{9}').firstMatch(textAfter);
         if (match != null) {
           cnumber = match.group(0);
           break;
@@ -342,7 +342,7 @@ class _PassportState extends State<Passport> {
 
     // Pattern 2: Standalone 9-character alphanumeric (fallback)
     if (cnumber == null) {
-      final matches = RegExp(r'\b[A-Za-z0-9]{9}\b').allMatches(_ocrText);
+      final matches = RegExp(r'\b\d{9}\b').allMatches(_ocrText);
       if (matches.isNotEmpty) {
         cnumber = matches.first.group(0);
       }
@@ -359,68 +359,7 @@ class _PassportState extends State<Passport> {
     }
   }
 
-  void extractBirthplace() {
-    String? birthplace;
 
-    // Debug: Print OCR text
-    debugPrint('Extracted OCR Text:\n$_ocrText');
-
-    // Arabic variations of "مكان الميلاد" with common OCR errors
-    final keywords = [
-      r'مكان الميلاد', // Standard
-      r'مكانلالميلاد', // Missing space
-      r'مكان الميلاد:', // With colon
-      r'مكان الميلاد :', // With space and colon
-      r'مكانلانميلا', // Common OCR misreads
-      r'مکان الميلاد', // Alternate character
-    ];
-
-    // Build regex pattern to match variations
-    final keywordPattern = RegExp(
-      '(${keywords.join('|')})',
-      caseSensitive: false,
-    );
-
-    // Find the keyword
-    final keywordMatch = keywordPattern.firstMatch(_ocrText);
-
-    if (keywordMatch != null) {
-      final textAfterKeyword = _ocrText.substring(keywordMatch.end);
-
-      // Debug: Print text after keyword
-      debugPrint('Text after keyword: $textAfterKeyword');
-
-      // Match Arabic text until end of line or next number/date
-      final birthplaceMatch = RegExp(
-        r'([\u0600-\u06FF\s]+)(?=\n|\d|$)',
-        multiLine: true,
-      ).firstMatch(textAfterKeyword);
-
-      if (birthplaceMatch != null) {
-        // Clean extracted text
-        birthplace = birthplaceMatch
-            .group(0)!
-            .replaceAll(RegExp(r'[^\u0600-\u06FF\s]'), '') // Remove non-Arabic
-            .trim();
-
-        debugPrint('Raw birthplace: ${birthplaceMatch.group(0)}');
-        debugPrint('Cleaned birthplace: $birthplace');
-      } else {
-        debugPrint('No Arabic text found after keyword.');
-      }
-    } else {
-      debugPrint('Keyword "مكان الميلاد" not found in OCR text.');
-    }
-
-    setState(() => _extractedBirthPlace = birthplace ?? '');
-
-    if (_extractedBirthPlace.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Birthplace not found. Try clearer image')),
-      );
-      debugPrint('Failed OCR Text:\n$_ocrText');
-    }
-  }
 
   String _extractNom(String text) {
     final lines = text.split('\n');
