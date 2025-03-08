@@ -38,12 +38,14 @@ class _PassportState extends State<Passport> {
   final TextEditingController _releasedateController = TextEditingController();
   final TextEditingController _enddateController = TextEditingController();
   final TextEditingController _backnumberController = TextEditingController();
+  final TextEditingController _nationalityController = TextEditingController();
 
   File? _frontImage;
   File? _backImage;
   String _extractedBirthPlace = '';
   String _extractedendDate = '';
   String _extractedReleaseDate = '';
+  String _extractedNationality = '';
   String _extractedNIN = '';
   String _extractedCardnumber = '';
   String _extractedNom = '';
@@ -152,20 +154,19 @@ class _PassportState extends State<Passport> {
 
   void _processBackOCR(String text) {
     // Extract nom and prenom from back
-    setState(() {
-      _extractedNom = _extractNom(text);
-      _extractedPrenom = _extractPrenom(text);
-    });
   }
 
   void _batchFrontExtraction() {
     try {
       _extractNIN();
-      _extractBirthdate();
       _extractCardnumber();
-      _extractReleaseDate();
-      extractBirthplace();
-      _extractEndDate();
+      _extractedNom = _extractFamilyName(_ocrText);
+      _extractedPrenom = _extractGivenName(_ocrText);
+      _extractedBirthdate = _extractBirthdate(_ocrText);
+      _extractedReleaseDate = _extractReleaseDate(_ocrText);
+      _extractedendDate = _extractEndDate(_ocrText);
+      _extractedBirthPlace = _extractPlaceOfBirth();
+      _extractedNationality = _extractNationality();
     } catch (e) {
       setState(
           () => _processingError = 'Data extraction error: ${e.toString()}');
@@ -275,108 +276,49 @@ class _PassportState extends State<Passport> {
     }
   }
 
-  void _extractBirthdate() {
-    String? birthdate;
-
-    // Debug: Print OCR text
-    debugPrint('Extracted OCR Text:\n$_ocrText');
-
-    // Match all date formats in the OCR text
-    final matches = RegExp(r'(\d{4}[./-]\d{2}[./-]\d{2})').allMatches(_ocrText);
-
-    // Debug: Print all matched dates
-    debugPrint('All matched dates: ${matches.map((m) => m.group(0)).toList()}');
-
-    // Extract the last date (birthdate)
-    if (matches.isNotEmpty) {
-      birthdate = matches.last.group(0); // Get the last matched date
-      debugPrint('Extracted Birthdate: $birthdate');
-    }
-
-    // Update UI state
-    setState(() => _extractedBirthdate = birthdate ?? '');
-
-    // Debug: Show error message if no birthdate found
-    if (_extractedBirthdate.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text('Birthdate not found. Try a better quality image')),
-      );
-      debugPrint('Birthdate NOT FOUND!');
-    }
+  String _extractFamilyName(String text) {
+    final match = RegExp(r'Surname\s*/\s*Nom\s*([A-Z]+)').firstMatch(_ocrText);
+    return match != null ? match.group(1)! : '';
   }
 
-  void _extractEndDate() {
-    String? enddate;
-
-    // Debug: Print OCR text
-    debugPrint('Extracted OCR Text:\n$_ocrText');
-
-    // Match all dates in the OCR text
-    final dateMatches =
-        RegExp(r'(\d{4}[./-]\d{2}[./-]\d{2})').allMatches(_ocrText);
-    final dates = dateMatches.map((m) => m.group(0)).toList();
-
-    // Debug: Print all dates
-    debugPrint('All Dates Found: $dates');
-
-    // Check if there are at least two dates
-    if (dates.length >= 2) {
-      enddate = dates[1]; // Second date (index 1)
-      debugPrint('Extracted Issue Date: $enddate');
-    }
-
-    // Update UI state
-    setState(() => _extractedendDate = enddate ?? '');
-
-    // Show error if no date found
-    if (_extractedendDate.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text('Issue Date not found. Try a better quality image')),
-      );
-      debugPrint('Issue Date NOT FOUND!');
-    }
+  String _extractGivenName(String text) {
+    final match =
+        RegExp(r'Given names\s*/\s*Prénoms\s*([A-Z]+)').firstMatch(_ocrText);
+    return match != null ? match.group(1)! : '';
   }
 
-  void _extractReleaseDate() {
-    String? releasedate;
+  String _extractBirthdate(String text) {
+    final match = RegExp(
+            r'Date of birth\s*/\s*Date de naissance\s*(\d{2}\s*[A-Za-z]+\s*\d{4})')
+        .firstMatch(_ocrText);
+    return match != null ? match.group(1)! : '';
+  }
 
-    // Pattern 1: Direct keyword match
-    const keywords = ['تاريخ الاصدار'];
+  String _extractNationality() {
+    final match = RegExp(r'Nationality\s*/\s*Nationalité\s*([A-Z]+)')
+        .firstMatch(_ocrText);
+    return match != null ? match.group(1)! : '';
+  }
 
-    // Search for keyword patterns
-    for (final keyword in keywords) {
-      final index = _ocrText.indexOf(keyword);
-      if (index != -1) {
-        final textAfter = _ocrText.substring(index + keyword.length);
-        final match =
-            RegExp(r'(\d{4}[./-]\d{2}[./-]\d{2})').firstMatch(textAfter);
-        if (match != null) {
-          releasedate = match.group(0);
-          break;
-        }
-      }
-    }
+  String _extractPlaceOfBirth() {
+    final match =
+        RegExp(r'Place of birth\s*/\s*Lieu de naissance\s*([A-Za-z]+)')
+            .firstMatch(_ocrText);
+    return match != null ? match.group(1)! : '';
+  }
 
-    // Pattern 2: Standalone 18-digit number (fallback)
-    if (releasedate == null) {
-      final matches =
-          RegExp(r'(\d{4}[./-]\d{2}[./-]\d{2})').allMatches(_ocrText);
-      if (matches.isNotEmpty) {
-        releasedate = matches.first.group(0);
-      }
-    }
+  String _extractReleaseDate(String text) {
+    final match = RegExp(
+            r'Date of issue\s*/\s*Date de délivrance\s*(\d{2}\s*[A-Za-z]+\s*\d{4})')
+        .firstMatch(_ocrText);
+    return match != null ? match.group(1)! : '';
+  }
 
-    setState(() => _extractedReleaseDate = releasedate ?? '');
-
-    if (_extractedReleaseDate.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text('Release Date not found. Try better quality image')),
-      );
-      debugPrint('OCR Text:\n$_ocrText'); // For debugging
-    }
+  String _extractEndDate(String text) {
+    final match = RegExp(
+            r'Date of expiry\s*/\s*Date dexpiration\s*(\d{2}\s*[A-Za-z]+\s*\d{4})')
+        .firstMatch(_ocrText);
+    return match != null ? match.group(1)! : '';
   }
 
   void _extractCardnumber() {
@@ -390,7 +332,7 @@ class _PassportState extends State<Passport> {
       final index = _ocrText.indexOf(keyword);
       if (index != -1) {
         final textAfter = _ocrText.substring(index + keyword.length);
-        final match = RegExp(r'\d{9}').firstMatch(textAfter);
+        final match = RegExp(r'\b[A-Za-z0-9]{9}\b').firstMatch(textAfter);
         if (match != null) {
           cnumber = match.group(0);
           break;
@@ -398,9 +340,9 @@ class _PassportState extends State<Passport> {
       }
     }
 
-    // Pattern 2: Standalone 18-digit number (fallback)
+    // Pattern 2: Standalone 9-character alphanumeric (fallback)
     if (cnumber == null) {
-      final matches = RegExp(r'\b\d{9}\b').allMatches(_ocrText);
+      final matches = RegExp(r'\b[A-Za-z0-9]{9}\b').allMatches(_ocrText);
       if (matches.isNotEmpty) {
         cnumber = matches.first.group(0);
       }
@@ -483,8 +425,8 @@ class _PassportState extends State<Passport> {
   String _extractNom(String text) {
     final lines = text.split('\n');
     for (var line in lines) {
-      if (line.toLowerCase().startsWith('nom:')) {
-        return line.substring(4).trim();
+      if (line.toLowerCase().startsWith('2.')) {
+        return line.substring(2).trim();
       }
     }
     return '';
@@ -493,8 +435,8 @@ class _PassportState extends State<Passport> {
   String _extractPrenom(String text) {
     final lines = text.split('\n');
     for (var line in lines) {
-      if (line.toLowerCase().startsWith('prénom(s):')) {
-        return line.substring(10).trim();
+      if (line.toLowerCase().startsWith('2.')) {
+        return line.substring(2).trim();
       }
     }
     return '';
@@ -720,8 +662,8 @@ class _PassportState extends State<Passport> {
       try {
         request.files.add(
             await http.MultipartFile.fromPath('frontPassport', _frontIdPath!));
-        request.files
-            .add(await http.MultipartFile.fromPath('backPassport', _backIdPath!));
+        request.files.add(
+            await http.MultipartFile.fromPath('backPassport', _backIdPath!));
         request.files
             .add(await http.MultipartFile.fromPath('selfie', _selfiePath!));
 
@@ -783,7 +725,7 @@ class _PassportState extends State<Passport> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Identity Form')),
+      appBar: AppBar(title: Text('Driver Lisence Form')),
       body: Padding(
         padding: EdgeInsets.all(16.0),
         child: Form(
@@ -896,7 +838,7 @@ class _PassportState extends State<Passport> {
               ),
               SizedBox(height: 20),
               _buildUploadSection(
-                title: 'Front ID Card',
+                title: 'Front Driver License Card',
                 image: _frontImage,
                 isProcessing: _isProcessingFront,
                 onTap: () => _pickPassport(ImageSource.gallery, isFront: true),
@@ -906,8 +848,13 @@ class _PassportState extends State<Passport> {
                       _birthDateController.text),
                   _buildComparison('Card number', _extractedCardnumber,
                       _cnumberController.text),
-                  // _buildComparison('Birthdate Place', _extractedBirthPlace,
-                  //  _birthplaceController.text),
+                  _buildComparison('Nom', _extractedNom, _nomController.text),
+                  _buildComparison(
+                      'Prénom', _extractedPrenom, _prenomController.text),
+                  _buildComparison('Birthdate Place', _extractedBirthPlace,
+                      _birthplaceController.text),
+                  _buildComparison('Nationality', _extractedNationality,
+                      _nationalityController.text),
                   _buildComparison('Release Date', _extractedReleaseDate,
                       _releasedateController.text),
                   _buildComparison(
@@ -917,15 +864,11 @@ class _PassportState extends State<Passport> {
 
               // Back ID Section
               _buildUploadSection(
-                title: 'Back ID Card',
+                title: 'Back Driver License Card',
                 image: _backImage,
                 isProcessing: _isProcessingBack,
                 onTap: () => _pickPassport(ImageSource.gallery, isFront: false),
-                extractedInfo: [
-                  _buildComparison('Nom', _extractedNom, _nomController.text),
-                  _buildComparison(
-                      'Prénom', _extractedPrenom, _prenomController.text),
-                ],
+                extractedInfo: [],
               ),
               ElevatedButton(
                 onPressed: _submitForm,
@@ -996,6 +939,7 @@ class _PassportState extends State<Passport> {
     _birthplaceController.dispose();
     _releasedateController.dispose();
     _enddateController.dispose();
+    _nationalityController.dispose();
 
     super.dispose();
   }
