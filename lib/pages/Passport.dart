@@ -75,10 +75,6 @@ class _PassportState extends State<Passport> {
     'nationalId': '',
     'birthDate': '',
   };
-  List<CameraDescription>? _cameras;
-  Future<void> _initializeCamera() async {
-    _cameras = await availableCameras();
-  }
 
   Future<void> _pickPassport(ImageSource source, {bool isFront = true}) async {
     final pickedFile = await ImagePicker().pickImage(source: source);
@@ -122,6 +118,7 @@ class _PassportState extends State<Passport> {
     try {
       final recognizedText = await textRecognizer.processImage(inputImage);
       _ocrText = _normalizeText(recognizedText.text);
+      
 
       if (isFront) {
         _batchFrontExtraction();
@@ -165,8 +162,8 @@ class _PassportState extends State<Passport> {
       _extractedBirthdate = _extractBirthdate(_ocrText);
       _extractedReleaseDate = _extractReleaseDate(_ocrText);
       _extractedendDate = _extractEndDate(_ocrText);
-      _extractedBirthPlace = _extractPlaceOfBirth();
-      _extractedNationality = _extractNationality();
+      _extractedBirthPlace = _extractPlaceOfBirth(_ocrText);
+      _extractedNationality = _extractNationality(_ocrText);
     } catch (e) {
       setState(
           () => _processingError = 'Data extraction error: ${e.toString()}');
@@ -233,6 +230,8 @@ class _PassportState extends State<Passport> {
       // Close the face detector
     }
   }
+  
+
 
   void _extractNIN() {
     String? nin;
@@ -277,47 +276,49 @@ class _PassportState extends State<Passport> {
   }
 
   String _extractFamilyName(String text) {
-    final match = RegExp(r'Surname\s*/\s*Nom\s*([A-Z]+)').firstMatch(_ocrText);
-    return match != null ? match.group(1)! : '';
+   final match = RegExp(r'(?i)Surname\s*/\s*Nom\s*([A-Z]+)').firstMatch(_ocrText);
+  String result = match != null ? match.group(1)! : '';
+  debugPrint("Extracted Surname: $result");
+  return result;
   }
 
   String _extractGivenName(String text) {
     final match =
-        RegExp(r'Given names\s*/\s*Prénoms\s*([A-Z]+)').firstMatch(_ocrText);
-    return match != null ? match.group(1)! : '';
+        RegExp(r'(?i)Given names\s*/\s*Prénoms\s*([A-Z]+)').firstMatch(text);
+        String result = match != null ? match.group(1)! : '';
+      debugPrint("Extracted Given name: $result");
+      return result;
+    
   }
 
   String _extractBirthdate(String text) {
     final match = RegExp(
             r'Date of birth\s*/\s*Date de naissance\s*(\d{2}\s*[A-Za-z]+\s*\d{4})')
-        .firstMatch(_ocrText);
+        .firstMatch(text);
     return match != null ? match.group(1)! : '';
   }
 
-  String _extractNationality() {
-    final match = RegExp(r'Nationality\s*/\s*Nationalité\s*([A-Z]+)')
-        .firstMatch(_ocrText);
-    return match != null ? match.group(1)! : '';
-  }
-
-  String _extractPlaceOfBirth() {
-    final match =
-        RegExp(r'Place of birth\s*/\s*Lieu de naissance\s*([A-Za-z]+)')
-            .firstMatch(_ocrText);
-    return match != null ? match.group(1)! : '';
-  }
+String _extractNationality(String text) {
+  final match = RegExp(r'Nationality\s*/\s*Nationalité\s*([A-Z]+)').firstMatch(text);
+  return match?.group(1) ?? '';
+}
+String _extractPlaceOfBirth(String text) {
+  final match = RegExp(r'Place of birth\s*/\s*Lieu de naissance\s*([A-Za-z\s]+)')
+      .firstMatch(text);
+  return match?.group(1)?.trim() ?? '';
+}
 
   String _extractReleaseDate(String text) {
     final match = RegExp(
             r'Date of issue\s*/\s*Date de délivrance\s*(\d{2}\s*[A-Za-z]+\s*\d{4})')
-        .firstMatch(_ocrText);
+        .firstMatch(text);
     return match != null ? match.group(1)! : '';
   }
 
   String _extractEndDate(String text) {
     final match = RegExp(
             r'Date of expiry\s*/\s*Date dexpiration\s*(\d{2}\s*[A-Za-z]+\s*\d{4})')
-        .firstMatch(_ocrText);
+        .firstMatch(text);
     return match != null ? match.group(1)! : '';
   }
 
