@@ -143,7 +143,7 @@ class _PassportState extends State<Passport> {
         } else {
           _isProcessingBack = false;
         }
-      });
+      });debugPrint('Extracted OCR Text:\n$_ocrText');
     }
   }
 
@@ -157,9 +157,12 @@ class _PassportState extends State<Passport> {
     try {
       _extractNIN();
       _extractCardnumber();
-      _extractedNom = _extractFamilyName(_ocrText);
-      _extractedPrenom = _extractGivenName(_ocrText);
-      _extractedBirthdate = _extractBirthdate(_ocrText);
+      _extractFamilyName();
+      _extractGivenName();
+      _extractBirthdate();
+      //_extractedNom = _extractFamilyName(_ocrText);
+    //  _extractedPrenom = _extractGivenName(_ocrText);
+     // _extractedBirthdate = _extractBirthdate(_ocrText);
       _extractedReleaseDate = _extractReleaseDate(_ocrText);
       _extractedendDate = _extractEndDate(_ocrText);
       _extractedBirthPlace = _extractPlaceOfBirth(_ocrText);
@@ -230,8 +233,6 @@ class _PassportState extends State<Passport> {
       // Close the face detector
     }
   }
-  
-
 
   void _extractNIN() {
     String? nin;
@@ -275,38 +276,158 @@ class _PassportState extends State<Passport> {
     }
   }
 
-  String _extractFamilyName(String text) {
-   final match = RegExp(r'(?i)Surname\s*/\s*Nom\s*([A-Z]+)').firstMatch(_ocrText);
-  String result = match != null ? match.group(1)! : '';
-  debugPrint("Extracted Surname: $result");
-  return result;
+  void _extractFamilyName() {
+    String? familyname;
+
+    // Pattern 1: Direct keyword match
+    const keywords = ['nom'];
+
+    // Search for keyword patterns
+    for (final keyword in keywords) {
+      final index = _ocrText.indexOf(keyword);
+      if (index != -1) {
+        final textAfter = _ocrText.substring(index + keyword.length);
+        final match = RegExp(r'[A-Za-z]+').firstMatch(textAfter);
+        if (match != null) {
+          familyname = match.group(0);
+          break;
+        }
+      }
+    }
+
+    // Pattern 2: Standalone 18-digit number (fallback)
+    if (familyname == null) {
+      final matches = RegExp(r'[A-Za-z]+').allMatches(_ocrText);
+      if (matches.isNotEmpty) {
+        familyname = matches.first.group(0);
+      }
+    }
+
+    setState(() => _extractedNom = familyname ?? '');
+
+    if (_extractedNom.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Nom not found. Try better quality image')),
+      );
+      debugPrint('OCR Text:\n$_ocrText'); // For debugging
+    }
   }
 
-  String _extractGivenName(String text) {
+  void _extractGivenName() {
+    String? givenname;
+
+    // Pattern 1: Direct keyword match
+    const keywords = ['<<'];
+
+    // Search for keyword patterns
+    for (final keyword in keywords) {
+      final index = _ocrText.indexOf(keyword);
+      if (index != -1) {
+        final textAfter = _ocrText.substring(index + keyword.length);
+        final match = RegExp(r'[A-Za-z]+').firstMatch(textAfter);
+        if (match != null) {
+          givenname = match.group(0);
+          break;
+        }
+      }
+    }
+
+    // Pattern 2: Standalone 18-digit number (fallback)
+    if (givenname == null) {
+      final matches = RegExp(r'[A-Za-z]+').allMatches(_ocrText);
+      if (matches.isNotEmpty) {
+        givenname = matches.first.group(0);
+      }
+    }
+
+    setState(() => _extractedPrenom = givenname ?? '');
+
+    if (_extractedPrenom.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Prenom not found. Try better quality image')),
+      );
+      debugPrint('OCR Text:\n$_ocrText'); // For debugging
+    }
+  }
+
+void _extractBirthdate() {
+  String? birthdate;
+
+  // Pattern 1: Search for standard birthdate format with month in text
+  const keywords = ['Date de naissance'];
+
+  for (final keyword in keywords) {
+    final index = _ocrText.indexOf(keyword);
+    if (index != -1) {
+      final textAfter = _ocrText.substring(index + keyword.length);
+      final match = RegExp(
+              r'(\d{2}) /(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre) (\d{4})',
+              caseSensitive: false)
+          .firstMatch(textAfter);
+      if (match != null) {
+        birthdate = match.group(0);
+        break;
+      }
+    }
+  }
+
+  // Pattern 2: Extract birthdate from MRZ (YYMMDD format)
+  if (birthdate == null) {
+    final match = RegExp(r'\d{6}').firstMatch(_ocrText);
+    if (match != null) {
+      String mrzDate = match.group(0)!;
+      birthdate = _convertMRZDate(mrzDate);
+    }
+  }
+
+  setState(() => _extractedBirthdate = birthdate ?? '');
+
+  if (_extractedBirthdate.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Birthdate not found. Try a better quality image')),
+    );
+    debugPrint('OCR Text:\n$_ocrText'); // Debugging
+  }
+}
+String _convertMRZDate(String mrzDate) {
+  if (mrzDate.length != 6) return "Invalid MRZ Date";
+
+  String year = mrzDate.substring(0, 2);
+  String month = mrzDate.substring(2, 4);
+  String day = mrzDate.substring(4, 6);
+
+  int yearInt = int.parse(year) > 30 ? 1900 + int.parse(year) : 2000 + int.parse(year);
+
+  return "$day/$month/$yearInt";
+}
+
+  //String _extractGivenName(String text) {
+  //  final match =
+  //    RegExp(r'(?i)Given names\s*/\s*Prénoms\s*([A-Z]+)').firstMatch(text);
+  // String result = match != null ? match.group(1)! : '';
+  //debugPrint("Extracted Given name: $result");
+  //return result;
+  //}
+
+  // String _extractBirthdate(String text) {
+  //   final match = RegExp(
+  //           r'Date of birth\s*/\s*Date de naissance\s*(\d{2}\s*[A-Za-z]+\s*\d{4})')
+  //      .firstMatch(text);
+  // return match != null ? match.group(1)! : '';
+//  }
+
+  String _extractNationality(String text) {
     final match =
-        RegExp(r'(?i)Given names\s*/\s*Prénoms\s*([A-Z]+)').firstMatch(text);
-        String result = match != null ? match.group(1)! : '';
-      debugPrint("Extracted Given name: $result");
-      return result;
-    
+        RegExp(r'Nationality\s*/\s*Nationalité\s*([A-Z]+)').firstMatch(text);
+    return match?.group(1) ?? '';
   }
 
-  String _extractBirthdate(String text) {
-    final match = RegExp(
-            r'Date of birth\s*/\s*Date de naissance\s*(\d{2}\s*[A-Za-z]+\s*\d{4})')
-        .firstMatch(text);
-    return match != null ? match.group(1)! : '';
+  String _extractPlaceOfBirth(String text) {
+    final match =
+        RegExp(r'Place of birth\s*/\s*Lieu de naissance\s*([A-Za-z\s]+)')
+            .firstMatch(text);
+    return match?.group(1)?.trim() ?? '';
   }
-
-String _extractNationality(String text) {
-  final match = RegExp(r'Nationality\s*/\s*Nationalité\s*([A-Z]+)').firstMatch(text);
-  return match?.group(1) ?? '';
-}
-String _extractPlaceOfBirth(String text) {
-  final match = RegExp(r'Place of birth\s*/\s*Lieu de naissance\s*([A-Za-z\s]+)')
-      .firstMatch(text);
-  return match?.group(1)?.trim() ?? '';
-}
 
   String _extractReleaseDate(String text) {
     final match = RegExp(
@@ -359,8 +480,6 @@ String _extractPlaceOfBirth(String text) {
       debugPrint('OCR Text:\n$_ocrText'); // For debugging
     }
   }
-
-
 
   String _extractNom(String text) {
     final lines = text.split('\n');
