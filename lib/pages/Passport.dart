@@ -42,6 +42,7 @@ class _PassportState extends State<Passport> {
 
   File? _frontImage;
   File? _backImage;
+  List<Map<String, dynamic>> _ocrElements = [];
   String _extractedBirthPlace = '';
   String _extractedendDate = '';
   String _extractedReleaseDate = '';
@@ -118,7 +119,8 @@ class _PassportState extends State<Passport> {
     try {
       final recognizedText = await textRecognizer.processImage(inputImage);
       _ocrText = _normalizeText(recognizedText.text);
-      
+
+      // Call extraction after OCR
 
       if (isFront) {
         _batchFrontExtraction();
@@ -143,7 +145,8 @@ class _PassportState extends State<Passport> {
         } else {
           _isProcessingBack = false;
         }
-      });debugPrint('Extracted OCR Text:\n$_ocrText');
+      });
+      debugPrint('Extracted OCR Text:\n$_ocrText');
     }
   }
 
@@ -160,11 +163,13 @@ class _PassportState extends State<Passport> {
       _extractFamilyName();
       _extractGivenName();
       _extractBirthdate();
+      _extractendDate();
+
       //_extractedNom = _extractFamilyName(_ocrText);
-    //  _extractedPrenom = _extractGivenName(_ocrText);
-     // _extractedBirthdate = _extractBirthdate(_ocrText);
+      //  _extractedPrenom = _extractGivenName(_ocrText);
+      // _extractedBirthdate = _extractBirthdate(_ocrText);
       _extractedReleaseDate = _extractReleaseDate(_ocrText);
-      _extractedendDate = _extractEndDate(_ocrText);
+     // _extractedendDate = _extractEndDate(_ocrText);
       _extractedBirthPlace = _extractPlaceOfBirth(_ocrText);
       _extractedNationality = _extractNationality(_ocrText);
     } catch (e) {
@@ -350,56 +355,114 @@ class _PassportState extends State<Passport> {
     }
   }
 
-void _extractBirthdate() {
-  String? birthdate;
+  void _extractBirthdate() {
+    String? birthdate;
 
-  // Pattern 1: Search for standard birthdate format with month in text
-  const keywords = ['Date de naissance'];
+    // Split OCR text into lines
+    List<String> lines = _ocrText.split('\n');
 
-  for (final keyword in keywords) {
-    final index = _ocrText.indexOf(keyword);
-    if (index != -1) {
-      final textAfter = _ocrText.substring(index + keyword.length);
-      final match = RegExp(
-              r'(\d{2}) /(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre) (\d{4})',
-              caseSensitive: false)
-          .firstMatch(textAfter);
-      if (match != null) {
-        birthdate = match.group(0);
-        break;
+    // Ensure there are lines
+    if (lines.isNotEmpty) {
+      String lastLine = lines.last.trim(); // Get the last line
+
+      debugPrint("MRZ Last Line: $lastLine"); // Debugging output
+
+      // Ensure the line has at least 25 characters
+      if (lastLine.length >= 25) {
+        int birthdateIndex = lastLine.length - 31; // 25th position from the end
+        String rawDate = lastLine.substring(birthdateIndex, birthdateIndex + 6);
+
+        debugPrint("Extracted Raw Date: $rawDate"); // Debugging output
+
+        // Validate if rawDate is 6 digits
+        if (RegExp(r'^\d{6}$').hasMatch(rawDate)) {
+          // Convert YYMMDD to DD/MM/YYYY
+          String year = int.parse(rawDate.substring(0, 2)) > 50
+              ? "19" + rawDate.substring(0, 2) // Assume 19XX for years > 30
+              : "20" + rawDate.substring(0, 2); // Assume 20XX for years ≤ 30
+          String month = rawDate.substring(2, 4);
+          String day = rawDate.substring(4, 6);
+
+          birthdate = "$day.$month.$year";
+        } else {
+          debugPrint("Raw date format invalid: $rawDate");
+        }
+      } else {
+        debugPrint("MRZ last line is too short: ${lastLine.length} characters");
       }
     }
-  }
 
-  // Pattern 2: Extract birthdate from MRZ (YYMMDD format)
-  if (birthdate == null) {
-    final match = RegExp(r'\d{6}').firstMatch(_ocrText);
-    if (match != null) {
-      String mrzDate = match.group(0)!;
-      birthdate = _convertMRZDate(mrzDate);
+    setState(() => _extractedBirthdate = birthdate ?? '');
+
+    if (_extractedBirthdate.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Birthdate not found in MRZ.')),
+      );
+    } else {
+      debugPrint('Extracted Birthdate: $_extractedBirthdate');
     }
   }
 
-  setState(() => _extractedBirthdate = birthdate ?? '');
+  void _extractendDate() {
+    String? enddate;
 
-  if (_extractedBirthdate.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Birthdate not found. Try a better quality image')),
-    );
-    debugPrint('OCR Text:\n$_ocrText'); // Debugging
+    // Split OCR text into lines
+    List<String> lines = _ocrText.split('\n');
+
+    // Ensure there are lines
+    if (lines.isNotEmpty) {
+      String lastLine = lines.last.trim(); // Get the last line
+
+      debugPrint("MRZ Last Line: $lastLine"); // Debugging output
+
+      // Ensure the line has at least 25 characters
+      if (lastLine.length >= 25) {
+        int enddateIndex = lastLine.length - 23; // 25th position from the end
+        String rawDate = lastLine.substring(enddateIndex, enddateIndex + 6);
+
+        debugPrint("Extracted Raw Date: $rawDate"); // Debugging output
+
+        // Validate if rawDate is 6 digits
+        if (RegExp(r'^\d{6}$').hasMatch(rawDate)) {
+          // Convert YYMMDD to DD/MM/YYYY
+          String year = int.parse(rawDate.substring(0, 2)) > 50
+              ? "19" + rawDate.substring(0, 2) // Assume 19XX for years > 30
+              : "20" + rawDate.substring(0, 2); // Assume 20XX for years ≤ 30
+          String month = rawDate.substring(2, 4);
+          String day = rawDate.substring(4, 6);
+
+          enddate = "$day.$month.$year";
+        } else {
+          debugPrint("Raw date format invalid: $rawDate");
+        }
+      } else {
+        debugPrint("MRZ last line is too short: ${lastLine.length} characters");
+      }
+    }
+
+    setState(() => _extractedendDate = enddate ?? '');
+
+    if (_extractedendDate.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Birthdate not found in MRZ.')),
+      );
+    } else {
+      debugPrint('Extracted Birthdate: $_extractedendDate');
+    }
   }
-}
-String _convertMRZDate(String mrzDate) {
-  if (mrzDate.length != 6) return "Invalid MRZ Date";
 
-  String year = mrzDate.substring(0, 2);
-  String month = mrzDate.substring(2, 4);
-  String day = mrzDate.substring(4, 6);
+  String _convertMRZDate(String mrzDate) {
+    if (mrzDate.length != 6) return "Invalid MRZ Date";
 
-  int yearInt = int.parse(year) > 30 ? 1900 + int.parse(year) : 2000 + int.parse(year);
+    String year = mrzDate.substring(0, 2);
+    String month = mrzDate.substring(2, 4);
+    String day = mrzDate.substring(4, 6);
 
-  return "$day/$month/$yearInt";
-}
+    int yearInt =
+        int.parse(year) > 40 ? 1900 + int.parse(year) : 2000 + int.parse(year);
+
+    return "$day/$month/$yearInt";
+  }
 
   //String _extractGivenName(String text) {
   //  final match =
@@ -897,7 +960,7 @@ String _convertMRZDate(String mrzDate) {
               ),
               SizedBox(height: 20),
               _buildUploadSection(
-                title: 'Front Driver License Card',
+                title: 'Front Passport',
                 image: _frontImage,
                 isProcessing: _isProcessingFront,
                 onTap: () => _pickPassport(ImageSource.gallery, isFront: true),
@@ -910,25 +973,14 @@ String _convertMRZDate(String mrzDate) {
                   _buildComparison('Nom', _extractedNom, _nomController.text),
                   _buildComparison(
                       'Prénom', _extractedPrenom, _prenomController.text),
-                  _buildComparison('Birthdate Place', _extractedBirthPlace,
-                      _birthplaceController.text),
-                  _buildComparison('Nationality', _extractedNationality,
-                      _nationalityController.text),
-                  _buildComparison('Release Date', _extractedReleaseDate,
-                      _releasedateController.text),
+      
                   _buildComparison(
                       'End Date', _extractedendDate, _enddateController.text),
                 ],
               ),
 
               // Back ID Section
-              _buildUploadSection(
-                title: 'Back Driver License Card',
-                image: _backImage,
-                isProcessing: _isProcessingBack,
-                onTap: () => _pickPassport(ImageSource.gallery, isFront: false),
-                extractedInfo: [],
-              ),
+       
               ElevatedButton(
                 onPressed: _submitForm,
                 child: Text('Submit'),

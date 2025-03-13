@@ -847,8 +847,8 @@ class _IdcardState extends State<Idcard> {
                       _cnumberController.text),
                   // _buildComparison('Birthdate Place', _extractedBirthPlace,
                   //  _birthplaceController.text),
-                  _buildComparison('Release Date', _extractedReleaseDate,
-                      _releasedateController.text),
+                //  _buildComparison('Release Date', _extractedReleaseDate,
+                   //   _releasedateController.text),
                   _buildComparison(
                       'End Date', _extractedendDate, _enddateController.text),
                 ],
