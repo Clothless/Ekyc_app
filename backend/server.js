@@ -1,105 +1,84 @@
 const express = require('express');
-const multer = require('multer');
-const { Pool } = require('pg');
+const bodyParser = require('body-parser');
 const cors = require('cors');
+const { Pool } = require('pg');
+const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-
 const app = express();
-app.use(cors());
-app.use('/uploads', express.static('uploads'));
-
-
+const baseUrl = 'http://localhost:5000'; // ✅ Define baseUrl
 const pool = new Pool({
-  user: 'adel',
+  user: 'postgres',
   host: 'localhost',
-  database: 'ekyc_db',
-  password: 'seconnecter',
+  database: 'ekyc',
+  password: 'adel2003',
   port: 5432,
 });
 
+app.use(cors());
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
+app.use('/uploads', express.static(uploadDir));
 
+// Configure multer for file storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/');
+    cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
-  }
+    cb(null, Date.now() + '-' + file.originalname);
+  },
 });
-
 const upload = multer({ storage });
 
-// Create table if not exists
-(async () => {
-  const client = await pool.connect();
-  try {
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS verification (
-        id SERIAL PRIMARY KEY,
-        nom VARCHAR(255),
-        prenom VARCHAR(255),
-        national_id VARCHAR(255) UNIQUE,
-        card_number VARCHAR(255) UNIQUE,
-        birth_date DATE,
-        front_id_path VARCHAR(255),
-        back_id_path VARCHAR(255),
-        selfie_path VARCHAR(255),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-  } finally {
-    client.release();
-  }
-})();
+app.post('/save-id-card', upload.fields([
+  { name: 'idCardFront', maxCount: 1 },
+  { name: 'idCardFace', maxCount: 1 }, // Extracted ID card face
+  { name: 'selfie', maxCount: 1 },
 
-    // Vérification doublon NIN
 
-app.post('/submit-form', upload.fields([
-  { name: 'frontidCard', maxCount: 1 },
-  { name: 'backidCard', maxCount: 1 },
-  { name: 'selfie', maxCount: 1 }
+  
 ]), async (req, res) => {
   try {
-    
-    const { nom, prenom, nationalId, birthDate } = req.body;
-    const frontIdPath = req.files.frontidCard[0].path;
-    const backIdPath = req.files.backidCard[0].path;
-    const selfiePath = req.files.selfie[0].path;
+    const { identity_number, card_number, expiryDate, birthdate, family_name, given_name } = req.body;
+    // Convert date format from DD.MM.YYYY to YYYY-MM-DD
+    function formatDate(dateString) {
+      if (!dateString) return null; // Handle null values
+      const parts = dateString.split('.');
+      if (parts.length === 3) {
+        return `${parts[2]}-${parts[1]}-${parts[0]}`; // Convert to YYYY-MM-DD
+      }
+      return null;
+    }
 
-    const client = await pool.connect();
-    const result = await client.query(
-      'INSERT INTO verification (nom, prenom, national_id, birth_date, front_id_path, back_id_path, selfie_path) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
-      [nom, prenom, nationalId, birthDate, frontIdPath, backIdPath, selfiePath]
+    const formattedBirthdate = formatDate(birthdate);
+    const formattedExpiryDate = formatDate(expiryDate);
+    // Get file paths
+    const frontImageUrl = req.files['idCardFront'] ? `${baseUrl}/uploads/${req.files['idCardFront'][0].filename}` : null;
+    const idCardFaceUrl = req.files['idCardFace'] ? `${baseUrl}/uploads/${req.files['idCardFace'][0].filename}` : null;
+    const selfieUrl = req.files['selfie'] ? `${baseUrl}/uploads/${req.files['selfie'][0].filename}` : null;
+
+
+    // Store data in PostgreSQL
+    const result = await pool.query(
+      `INSERT INTO id_cards (identity_number, card_number, expiry_date, birthdate, family_name, given_name, front_image_url, front_face_url, selfie_face_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [identity_number, card_number, formattedExpiryDate, formattedBirthdate, family_name, given_name, frontImageUrl, idCardFaceUrl, selfieUrl]
     );
-    client.release();
 
-
-         //Verify NIN format
-        if (!/^\d{18}$/.test(nationalId)) {
-          return res.status(400).json({ error: 'Format NIN invalide' });
-        }
-    
-        // Check for existing NIN
-        const existing = await pool.query(
-          'SELECT id FROM verification WHERE national_id = $1',
-          [nationalId]
-        );
-        
-        if (existing.rows.length > 0) {
-          return res.status(400).json({ error: 'NIN déjà enregistré' });
-        }
-
-    res.status(201).json({ success: true, data: result.rows[0] });
+    res.json({ success: true, message: 'ID Card saved successfully!', data: result.rows[0] });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('❌ Database Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to save ID Card data', error: error.message });
   }
 });
 
-const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+app.listen(5000, () => {
+  console.log('🚀 Server running on http://localhost:5000');
 });

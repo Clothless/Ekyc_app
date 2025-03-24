@@ -68,10 +68,12 @@ class _DriverlicenseState extends State<Driverlicense> {
   final ImagePicker _picker = ImagePicker();
 
   final Map<String, String> _formData = {
-    'nom': '',
-    'prenom': '',
-    'nationalId': '',
+    'family_name': '',
+    'given_name': '',
+    'identity_number': '',
+    'card_number': '',
     'birthDate': '',
+    'expiryDate': '',
   };
   List<CameraDescription>? _cameras;
   Future<void> _initializeCamera() async {
@@ -597,109 +599,82 @@ class _DriverlicenseState extends State<Driverlicense> {
     }
   }
 
-  Future<void> _submitForm() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_frontIdPath == null || _backIdPath == null || _selfiePath == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez uploader toutes les images')),
-      );
-      return;
-    }
+Future<void> _submitForm() async {
+  if (!_formKey.currentState!.validate()) return;
 
-    if (_extractedNIN.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please process ID card first')),
-      );
-      return;
-    }
-    final errors = <String>[];
-
-    if (_normalizeName(_nomController.text) != _normalizeName(_extractedNom)) {
-      errors.add('Nom mismatch');
-    }
-    if (_normalizeName(_prenomController.text) !=
-        _normalizeName(_extractedPrenom)) {
-      errors.add('Prenom mismatch');
-    }
-    if (_ninController.text != _extractedNIN) errors.add('NIN mismatch');
-    if (_birthDateController.text != _extractedBirthdate) {
-      errors.add('Birthdate mismatch');
-    }
-
-    if (errors.isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errors.join(', '))),
-      );
-      return;
-    }
-
-    setState(() => _isProcessing = true);
-
-    try {
-      var request = http.MultipartRequest(
-          'POST', Uri.parse('http://192.168.1.12:3000/submit-form'));
-
-      // Add text fields
-      request.fields.addAll({
-        'nom': _formData['nom']!,
-        'prenom': _formData['prenom']!,
-        'nationalId': _formData['nationalId']!,
-        'birthDate': _formData['birthDate']!,
-      });
-
-      // Add files with error handling
-      try {
-        request.files.add(await http.MultipartFile.fromPath(
-            'frontDriverlicense', _frontIdPath!));
-        request.files.add(await http.MultipartFile.fromPath(
-            'backDriverlicense', _backIdPath!));
-        request.files
-            .add(await http.MultipartFile.fromPath('selfie', _selfiePath!));
-
-        setState(() => _isVerified = true);
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) =>
-              const Center(child: CircularProgressIndicator()),
-        );
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Data verified and saved successfully!')),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving data: ${e.toString()}')),
-        );
-      }
-
-      // Show loading indicator
-
-      var response = await request.send();
-      final respStr = await response.stream.bytesToString();
-      final responseData = jsonDecode(respStr);
-      Navigator.pop(context); // Hide loading
-
-      if (response.statusCode == 201) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Form submitted successfully')));
-      } else if (response.statusCode == 400 &&
-          responseData['error'] == 'NIN déjà enregistré') {
-        // Cas spécifique du NIN existant
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: const Text('Ce NIN est déjà enregistré dans notre système'),
-          backgroundColor: Colors.orange.shade700,
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ));
-      }
-    } catch (e) {
-      Navigator.pop(context); // Hide loading on error
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Connection error: ${e.toString()}')));
-    }
+  if (_frontIdPath == null || _selfiePath == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Veuillez uploader toutes les images')),
+    );
+    return;
   }
+
+  setState(() => _isProcessing = true);
+
+  try {
+    var request = http.MultipartRequest(
+      'POST', 
+      Uri.parse('http://192.168.1.4:5000/save-id-card')
+    );
+
+    // Add form fields
+    request.fields.addAll({
+      'family_name': _nomController.text,
+      'given_name': _prenomController.text,
+      'identity_number': _ninController.text,
+      'card_number': _cnumberController.text,
+      'birthdate': _birthDateController.text,
+      'expiryDate': _enddateController.text,
+    });
+
+    // Attach images
+    request.files.add(await http.MultipartFile.fromPath('idCardFront', _frontIdPath!));
+    request.files.add(await http.MultipartFile.fromPath('selfie', _selfiePath!));
+
+    if (_extractedPhoto != null) {
+      request.files.add(await http.MultipartFile.fromPath('idCardFace', _extractedPhoto!.path));
+    }
+
+
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    // Send request
+    var response = await request.send();
+    final respStr = await response.stream.bytesToString();
+    final responseData = jsonDecode(respStr);
+    Navigator.pop(context); // Hide loading
+
+    if (response.statusCode == 201) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Form submitted successfully')),
+      );
+    } else if (response.statusCode == 400 && responseData['error'] == 'NIN déjà enregistré') {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Ce NIN est déjà enregistré dans notre système'),
+        backgroundColor: Colors.orange.shade700,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${responseData['message']}')),
+      );
+    }
+  } catch (e) {
+    Navigator.pop(context); // Hide loading on error
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Connection error: ${e.toString()}')),
+    );
+  } finally {
+    setState(() => _isProcessing = false);
+  }
+}
+
 
   void _autoFillForm() {
     setState(() {
@@ -708,13 +683,14 @@ class _DriverlicenseState extends State<Driverlicense> {
       _ninController.text = _extractedNIN;
       _cnumberController.text = _extractedCardnumber;
       _birthDateController.text = _extractedBirthdate;
+      _enddateController.text = _extractedendDate;
     });
   }
 
   @override
-  Widget build(BuildContext context) {
+    Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Driver Lisence Form')),
+      appBar: AppBar(title: Text('Id Card Form')),
       body: Padding(
         padding: EdgeInsets.all(16.0),
         child: Form(
@@ -724,29 +700,29 @@ class _DriverlicenseState extends State<Driverlicense> {
               TextFormField(
                 controller: _nomController,
                 decoration: const InputDecoration(
-                  labelText: 'Nom',
+                  labelText: 'Family name',
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) =>
                     value!.isEmpty ? 'Please enter your last name' : null,
-                onChanged: (value) => _formData['nom'] = value,
+                onChanged: (value) => _formData['family_name'] = value,
               ),
               SizedBox(height: 10),
               TextFormField(
                 controller: _prenomController,
                 decoration: const InputDecoration(
-                  labelText: 'Prenom',
+                  labelText: 'Given name',
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) =>
                     value!.isEmpty ? 'Please enter your first name' : null,
-                onChanged: (value) => _formData['prenom'] = value,
+                onChanged: (value) => _formData['given_name'] = value,
               ),
               SizedBox(height: 10),
               TextFormField(
                 controller: _ninController,
                 decoration: const InputDecoration(
-                  labelText: 'Numero identite',
+                  labelText: 'Identity number',
                   border: OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.number,
@@ -760,13 +736,13 @@ class _DriverlicenseState extends State<Driverlicense> {
                   }
                   return null;
                 },
-                onChanged: (value) => _formData['nationalId'] = value,
+                onChanged: (value) => _formData['identity_number'] = value,
               ),
               SizedBox(height: 10),
               TextFormField(
                 controller: _cnumberController,
                 decoration: const InputDecoration(
-                  labelText: 'Numero de la carte',
+                  labelText: 'Card number',
                   border: OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.number,
@@ -794,6 +770,19 @@ class _DriverlicenseState extends State<Driverlicense> {
                 validator: (value) =>
                     value!.isEmpty ? 'Please select birth date' : null,
                 onChanged: (value) => _formData['birthdate'] = value,
+              ),
+              SizedBox(height: 20),
+              TextFormField(
+                controller: _enddateController,
+                decoration: const InputDecoration(
+                  labelText: 'Expiry Date',
+                  border: OutlineInputBorder(),
+                  suffixIcon: Icon(Icons.calendar_today),
+                ),
+                onTap: () => _selectDate(context),
+                validator: (value) =>
+                    value!.isEmpty ? 'Please select expiry date' : null,
+                onChanged: (value) => _formData['expiryDate'] = value,
               ),
               SizedBox(height: 20),
               if (_extractedPhoto != null)
@@ -825,6 +814,7 @@ class _DriverlicenseState extends State<Driverlicense> {
                   ),
                 ],
               ),
+
               SizedBox(height: 20),
               _buildUploadSection(
                 title: 'Front Driver License Card',

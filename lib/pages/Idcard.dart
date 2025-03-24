@@ -8,16 +8,15 @@ import 'package:camera/camera.dart';
 import 'package:google_ml_kit/google_ml_kit.dart';
 import 'package:image/image.dart' as img;
 import 'package:flutter/material.dart';
-import 'package:flutter_tesseract_ocr/android_ios.dart';
+
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:path/path.dart' as path;
+
 import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
+
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
 class Idcard extends StatefulWidget {
@@ -37,11 +36,10 @@ class _IdcardState extends State<Idcard> {
   final TextEditingController _birthplaceController = TextEditingController();
   final TextEditingController _releasedateController = TextEditingController();
   final TextEditingController _enddateController = TextEditingController();
-  final TextEditingController _backnumberController = TextEditingController();
 
   File? _frontImage;
   File? _backImage;
-  String _extractedBirthPlace = '';
+
   String _extractedendDate = '';
   String _extractedReleaseDate = '';
   String _extractedNIN = '';
@@ -51,7 +49,7 @@ class _IdcardState extends State<Idcard> {
   final bool _isProcessingImage = false;
   String? _processingError;
   String _extractedBirthdate = '';
-  final String _extractedBacknumber = '';
+
   bool _isProcessing = false;
   bool _isProcessingFront = false;
   bool _isProcessingBack = false;
@@ -60,6 +58,9 @@ class _IdcardState extends State<Idcard> {
   String? _frontIdPath;
   String? _backIdPath;
   String? _selfiePath;
+  String? _selfieCroppedPath;
+  String? _idCardFacePath; // Path for extracted face from ID card
+  String? _selfieCroppedFacePath;
   File? _selfieImage;
   DateTime? _birthDate;
   File? _extractedPhoto;
@@ -68,10 +69,12 @@ class _IdcardState extends State<Idcard> {
   final ImagePicker _picker = ImagePicker();
 
   final Map<String, String> _formData = {
-    'nom': '',
-    'prenom': '',
-    'nationalId': '',
+    'family_name': '',
+    'given_name': '',
+    'identity_number': '',
+    'card_number': '',
     'birthDate': '',
+    'expiryDate': '',
   };
   List<CameraDescription>? _cameras;
   Future<void> _initializeCamera() async {
@@ -153,6 +156,8 @@ class _IdcardState extends State<Idcard> {
   void _processBackOCR(String text) {
     // Extract nom and prenom from back
     setState(() {
+      _extractEndDate();
+      _extractBirthdate();
       _extractedNom = _extractNom(text);
       _extractedPrenom = _extractPrenom(text);
     });
@@ -161,11 +166,9 @@ class _IdcardState extends State<Idcard> {
   void _batchFrontExtraction() {
     try {
       _extractNIN();
-      _extractBirthdate();
+
       _extractCardnumber();
-      _extractReleaseDate();
-     
-      _extractEndDate();
+      
     } catch (e) {
       setState(
           () => _processingError = 'Data extraction error: ${e.toString()}');
@@ -278,25 +281,19 @@ class _IdcardState extends State<Idcard> {
   void _extractBirthdate() {
     String? birthdate;
 
-    // Debug: Print OCR text
     debugPrint('Extracted OCR Text:\n$_ocrText');
 
-    // Match all date formats in the OCR text
-    final matches = RegExp(r'(\d{4}[./-]\d{2}[./-]\d{2})').allMatches(_ocrText);
+    // Match birthdate (6 digits before M or F)
+    final match = RegExp(r'(\d{6})\d[mf]').firstMatch(_ocrText);
 
-    // Debug: Print all matched dates
-    debugPrint('All matched dates: ${matches.map((m) => m.group(0)).toList()}');
-
-    // Extract the last date (birthdate)
-    if (matches.isNotEmpty) {
-      birthdate = matches.last.group(0); // Get the last matched date
+    if (match != null) {
+      birthdate = _formatDate(match.group(1)!);
       debugPrint('Extracted Birthdate: $birthdate');
     }
 
     // Update UI state
     setState(() => _extractedBirthdate = birthdate ?? '');
 
-    // Debug: Show error message if no birthdate found
     if (_extractedBirthdate.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -307,76 +304,40 @@ class _IdcardState extends State<Idcard> {
   }
 
   void _extractEndDate() {
-    String? enddate;
+    String? endDate;
 
-    // Debug: Print OCR text
     debugPrint('Extracted OCR Text:\n$_ocrText');
 
-    // Match all dates in the OCR text
-    final dateMatches =
-        RegExp(r'(\d{4}[./-]\d{2}[./-]\d{2})').allMatches(_ocrText);
-    final dates = dateMatches.map((m) => m.group(0)).toList();
+    // Match expiry date (6 digits after M or F)
+    final match = RegExp(r'\d[mf](\d{6})').firstMatch(_ocrText);
 
-    // Debug: Print all dates
-    debugPrint('All Dates Found: $dates');
-
-    // Check if there are at least two dates
-    if (dates.length >= 2) {
-      enddate = dates[1]; // Second date (index 1)
-      debugPrint('Extracted Issue Date: $enddate');
+    if (match != null) {
+      endDate = _formatDate(match.group(1)!);
+      debugPrint('Extracted Expiry Date: $endDate');
     }
 
     // Update UI state
-    setState(() => _extractedendDate = enddate ?? '');
+    setState(() => _extractedendDate = endDate ?? '');
 
-    // Show error if no date found
     if (_extractedendDate.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text('Issue Date not found. Try a better quality image')),
+            content: Text('Expiry Date not found. Try a better quality image')),
       );
-      debugPrint('Issue Date NOT FOUND!');
+      debugPrint('Expiry Date NOT FOUND!');
     }
   }
 
-  void _extractReleaseDate() {
-    String? releasedate;
+/** Converts YYMMDD to DD.MM.YYYY */
+  String _formatDate(String yyMMdd) {
+    int year = int.parse(yyMMdd.substring(0, 2));
+    String month = yyMMdd.substring(2, 4);
+    String day = yyMMdd.substring(4, 6);
 
-    // Pattern 1: Direct keyword match
-    const keywords = ['تاريخ الاصدار'];
+    // Handle 20th & 21st century correction
+    int fullYear = (year > 50) ? (1900 + year) : (2000 + year);
 
-    // Search for keyword patterns
-    for (final keyword in keywords) {
-      final index = _ocrText.indexOf(keyword);
-      if (index != -1) {
-        final textAfter = _ocrText.substring(index + keyword.length);
-        final match =
-            RegExp(r'(\d{4}[./-]\d{2}[./-]\d{2})').firstMatch(textAfter);
-        if (match != null) {
-          releasedate = match.group(0);
-          break;
-        }
-      }
-    }
-
-    // Pattern 2: Standalone 18-digit number (fallback)
-    if (releasedate == null) {
-      final matches =
-          RegExp(r'(\d{4}[./-]\d{2}[./-]\d{2})').allMatches(_ocrText);
-      if (matches.isNotEmpty) {
-        releasedate = matches.first.group(0);
-      }
-    }
-
-    setState(() => _extractedReleaseDate = releasedate ?? '');
-
-    if (_extractedReleaseDate.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text('Release Date not found. Try better quality image')),
-      );
-      debugPrint('OCR Text:\n$_ocrText'); // For debugging
-    }
+    return '$day.$month.$fullYear';
   }
 
   void _extractCardnumber() {
@@ -416,8 +377,6 @@ class _IdcardState extends State<Idcard> {
       debugPrint('OCR Text:\n$_ocrText'); // For debugging
     }
   }
-
-
 
   String _extractNom(String text) {
     final lines = text.split('\n');
@@ -476,6 +435,8 @@ class _IdcardState extends State<Idcard> {
       final croppedFace = await _cropFace(image, face);
       if (croppedFace != null) {
         setState(() => _selfiePath = croppedFace.path);
+
+        
       }
     }
   }
@@ -605,109 +566,82 @@ class _IdcardState extends State<Idcard> {
     }
   }
 
-  Future<void> _submitForm() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_frontIdPath == null || _backIdPath == null || _selfiePath == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez uploader toutes les images')),
-      );
-      return;
-    }
+Future<void> _submitForm() async {
+  if (!_formKey.currentState!.validate()) return;
 
-    if (_extractedNIN.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please process ID card first')),
-      );
-      return;
-    }
-    final errors = <String>[];
-
-    if (_normalizeName(_nomController.text) != _normalizeName(_extractedNom)) {
-      errors.add('Nom mismatch');
-    }
-    if (_normalizeName(_prenomController.text) !=
-        _normalizeName(_extractedPrenom)) {
-      errors.add('Prenom mismatch');
-    }
-    if (_ninController.text != _extractedNIN) errors.add('NIN mismatch');
-    if (_birthDateController.text != _extractedBirthdate) {
-      errors.add('Birthdate mismatch');
-    }
-
-    if (errors.isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errors.join(', '))),
-      );
-      return;
-    }
-
-    setState(() => _isProcessing = true);
-
-    try {
-      var request = http.MultipartRequest(
-          'POST', Uri.parse('http://192.168.1.12:3000/submit-form'));
-
-      // Add text fields
-      request.fields.addAll({
-        'nom': _formData['nom']!,
-        'prenom': _formData['prenom']!,
-        'nationalId': _formData['nationalId']!,
-        'birthDate': _formData['birthDate']!,
-      });
-
-      // Add files with error handling
-      try {
-        request.files.add(
-            await http.MultipartFile.fromPath('frontidCard', _frontIdPath!));
-        request.files
-            .add(await http.MultipartFile.fromPath('backidCard', _backIdPath!));
-        request.files
-            .add(await http.MultipartFile.fromPath('selfie', _selfiePath!));
-
-        setState(() => _isVerified = true);
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) =>
-              const Center(child: CircularProgressIndicator()),
-        );
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Data verified and saved successfully!')),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving data: ${e.toString()}')),
-        );
-      }
-
-      // Show loading indicator
-
-      var response = await request.send();
-      final respStr = await response.stream.bytesToString();
-      final responseData = jsonDecode(respStr);
-      Navigator.pop(context); // Hide loading
-
-      if (response.statusCode == 201) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Form submitted successfully')));
-      } else if (response.statusCode == 400 &&
-          responseData['error'] == 'NIN déjà enregistré') {
-        // Cas spécifique du NIN existant
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: const Text('Ce NIN est déjà enregistré dans notre système'),
-          backgroundColor: Colors.orange.shade700,
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ));
-      }
-    } catch (e) {
-      Navigator.pop(context); // Hide loading on error
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Connection error: ${e.toString()}')));
-    }
+  if (_frontIdPath == null || _selfiePath == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Veuillez uploader toutes les images')),
+    );
+    return;
   }
+
+  setState(() => _isProcessing = true);
+
+  try {
+    var request = http.MultipartRequest(
+      'POST', 
+      Uri.parse('http://192.168.1.4:5000/save-id-card')
+    );
+
+    // Add form fields
+    request.fields.addAll({
+      'family_name': _nomController.text,
+      'given_name': _prenomController.text,
+      'identity_number': _ninController.text,
+      'card_number': _cnumberController.text,
+      'birthdate': _birthDateController.text,
+      'expiryDate': _enddateController.text,
+    });
+
+    // Attach images
+    request.files.add(await http.MultipartFile.fromPath('idCardFront', _frontIdPath!));
+    request.files.add(await http.MultipartFile.fromPath('selfie', _selfiePath!));
+
+    if (_extractedPhoto != null) {
+      request.files.add(await http.MultipartFile.fromPath('idCardFace', _extractedPhoto!.path));
+    }
+
+
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    // Send request
+    var response = await request.send();
+    final respStr = await response.stream.bytesToString();
+    final responseData = jsonDecode(respStr);
+    Navigator.pop(context); // Hide loading
+
+    if (response.statusCode == 201) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Form submitted successfully')),
+      );
+    } else if (response.statusCode == 400 && responseData['error'] == 'NIN déjà enregistré') {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Ce NIN est déjà enregistré dans notre système'),
+        backgroundColor: Colors.orange.shade700,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${responseData['message']}')),
+      );
+    }
+  } catch (e) {
+    Navigator.pop(context); // Hide loading on error
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Connection error: ${e.toString()}')),
+    );
+  } finally {
+    setState(() => _isProcessing = false);
+  }
+}
+
 
   void _autoFillForm() {
     setState(() {
@@ -716,6 +650,7 @@ class _IdcardState extends State<Idcard> {
       _ninController.text = _extractedNIN;
       _cnumberController.text = _extractedCardnumber;
       _birthDateController.text = _extractedBirthdate;
+      _enddateController.text = _extractedendDate;
     });
   }
 
@@ -732,29 +667,29 @@ class _IdcardState extends State<Idcard> {
               TextFormField(
                 controller: _nomController,
                 decoration: const InputDecoration(
-                  labelText: 'Nom',
+                  labelText: 'Family name',
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) =>
                     value!.isEmpty ? 'Please enter your last name' : null,
-                onChanged: (value) => _formData['nom'] = value,
+                onChanged: (value) => _formData['family_name'] = value,
               ),
               SizedBox(height: 10),
               TextFormField(
                 controller: _prenomController,
                 decoration: const InputDecoration(
-                  labelText: 'Prenom',
+                  labelText: 'Given name',
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) =>
                     value!.isEmpty ? 'Please enter your first name' : null,
-                onChanged: (value) => _formData['prenom'] = value,
+                onChanged: (value) => _formData['given_name'] = value,
               ),
               SizedBox(height: 10),
               TextFormField(
                 controller: _ninController,
                 decoration: const InputDecoration(
-                  labelText: 'Numero identite',
+                  labelText: 'Identity number',
                   border: OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.number,
@@ -768,13 +703,13 @@ class _IdcardState extends State<Idcard> {
                   }
                   return null;
                 },
-                onChanged: (value) => _formData['nationalId'] = value,
+                onChanged: (value) => _formData['identity_number'] = value,
               ),
               SizedBox(height: 10),
               TextFormField(
                 controller: _cnumberController,
                 decoration: const InputDecoration(
-                  labelText: 'Numero de la carte',
+                  labelText: 'Card number',
                   border: OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.number,
@@ -802,6 +737,19 @@ class _IdcardState extends State<Idcard> {
                 validator: (value) =>
                     value!.isEmpty ? 'Please select birth date' : null,
                 onChanged: (value) => _formData['birthdate'] = value,
+              ),
+              SizedBox(height: 20),
+              TextFormField(
+                controller: _enddateController,
+                decoration: const InputDecoration(
+                  labelText: 'Expiry Date',
+                  border: OutlineInputBorder(),
+                  suffixIcon: Icon(Icons.calendar_today),
+                ),
+                onTap: () => _selectDate(context),
+                validator: (value) =>
+                    value!.isEmpty ? 'Please select expiry date' : null,
+                onChanged: (value) => _formData['expiryDate'] = value,
               ),
               SizedBox(height: 20),
               if (_extractedPhoto != null)
@@ -841,16 +789,13 @@ class _IdcardState extends State<Idcard> {
                 onTap: () => _pickIDCard(ImageSource.gallery, isFront: true),
                 extractedInfo: [
                   _buildComparison('NIN', _extractedNIN, _ninController.text),
-                  _buildComparison('Birthdate', _extractedBirthdate,
-                      _birthDateController.text),
+
                   _buildComparison('Card number', _extractedCardnumber,
                       _cnumberController.text),
                   // _buildComparison('Birthdate Place', _extractedBirthPlace,
                   //  _birthplaceController.text),
-                //  _buildComparison('Release Date', _extractedReleaseDate,
-                   //   _releasedateController.text),
-                  _buildComparison(
-                      'End Date', _extractedendDate, _enddateController.text),
+                  //  _buildComparison('Release Date', _extractedReleaseDate,
+                  //   _releasedateController.text),
                 ],
               ),
 
@@ -864,6 +809,10 @@ class _IdcardState extends State<Idcard> {
                   _buildComparison('Nom', _extractedNom, _nomController.text),
                   _buildComparison(
                       'Prénom', _extractedPrenom, _prenomController.text),
+                  _buildComparison('Birthdate', _extractedBirthdate,
+                      _birthDateController.text),
+                  _buildComparison(
+                      'End Date', _extractedendDate, _enddateController.text),
                 ],
               ),
               ElevatedButton(
