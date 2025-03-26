@@ -415,13 +415,7 @@ class _IdcardState extends State<Idcard> {
             ''); // Garde les caractères spéciaux français
   }
 
-  //Future<void> _takeSelfie() async {
-  // final picker = ImagePicker();
-  // final image = await picker.pickImage(source: ImageSource.camera);
-  //if (image != null) {
-  //  setState(() => _selfiePath = image.path);
-  //  }
-  //}
+
 
   Future<void> _takeSelfie() async {
     final XFile? imageFile =
@@ -581,7 +575,7 @@ Future<void> _submitForm() async {
   try {
     var request = http.MultipartRequest(
       'POST', 
-      Uri.parse('http://192.168.1.4:5000/save-id-card')
+      Uri.parse('http://192.168.1.6:5000/save-id-card')
     );
 
     // Add form fields
