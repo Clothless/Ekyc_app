@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:camera/camera.dart';
+import 'package:dio/dio.dart';
 
 import 'package:google_ml_kit/google_ml_kit.dart';
 import 'package:image/image.dart' as img;
@@ -20,7 +21,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
 class Idcard extends StatefulWidget {
-  const Idcard({super.key});
+  final String documentType;
+  const Idcard({Key? key, required this.documentType}) : super(key: key);
 
   @override
   _IdcardState createState() => _IdcardState();
@@ -75,7 +77,14 @@ class _IdcardState extends State<Idcard> {
     'card_number': '',
     'birthDate': '',
     'expiryDate': '',
+    'document_type': '',
   };
+@override
+void initState() {
+  super.initState();
+  _formData['document_type'] = widget.documentType;
+}
+
   List<CameraDescription>? _cameras;
   Future<void> _initializeCamera() async {
     _cameras = await availableCameras();
@@ -417,23 +426,25 @@ class _IdcardState extends State<Idcard> {
 
 
 
-  Future<void> _takeSelfie() async {
-    final XFile? imageFile =
-        await _picker.pickImage(source: ImageSource.camera);
-    if (imageFile == null) return;
+Future<void> _takeSelfie() async {
+  final XFile? imageFile = await _picker.pickImage(
+    source: ImageSource.camera,
+    preferredCameraDevice: CameraDevice.front, // 👈 Use front camera
+  );
 
-    File image = File(imageFile.path);
-    final face = await _detectFace(image);
+  if (imageFile == null) return;
 
-    if (face != null) {
-      final croppedFace = await _cropFace(image, face);
-      if (croppedFace != null) {
-        setState(() => _selfiePath = croppedFace.path);
+  File image = File(imageFile.path);
+  final face = await _detectFace(image);
 
-        
-      }
+  if (face != null) {
+    final croppedFace = await _cropFace(image, face);
+    if (croppedFace != null) {
+      setState(() => _selfiePath = croppedFace.path);
     }
   }
+}
+
 
   Future<Face?> _detectFace(File imageFile) async {
     final InputImage inputImage = InputImage.fromFile(imageFile);
@@ -560,10 +571,15 @@ class _IdcardState extends State<Idcard> {
     }
   }
 
+
+
+
+
+
 Future<void> _submitForm() async {
   if (!_formKey.currentState!.validate()) return;
 
-  if (_frontIdPath == null || _selfiePath == null) {
+  if (_frontIdPath == null || _selfiePath == null || _extractedPhoto == null) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Veuillez uploader toutes les images')),
     );
@@ -573,12 +589,50 @@ Future<void> _submitForm() async {
   setState(() => _isProcessing = true);
 
   try {
-    var request = http.MultipartRequest(
-      'POST', 
-      Uri.parse('http://192.168.1.6:5000/save-id-card')
+    // 1. Face comparison first
+    var comparisonRequest = http.MultipartRequest(
+      'POST',
+      Uri.parse('http://192.168.1.10:8000/compare-faces'), // Point to the FastAPI endpoint
     );
 
-    // Add form fields
+    // Add the images for comparison
+    comparisonRequest.files.add(await http.MultipartFile.fromPath(
+      'idCardFace', _extractedPhoto!.path));
+    comparisonRequest.files.add(await http.MultipartFile.fromPath(
+      'selfie', _selfiePath!));
+
+    // Send the request
+    var comparisonResponse = await comparisonRequest.send();
+    final comparisonRespStr = await comparisonResponse.stream.bytesToString();
+    final comparisonResponseData = jsonDecode(comparisonRespStr);
+
+    if (comparisonResponse.statusCode != 200) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur de comparaison: ${comparisonResponseData['message']}')),
+      );
+      return;
+    }
+
+    final double similarity = comparisonResponseData['similarity_percentage']?.toDouble() ?? 0;
+    final bool isVerified = comparisonResponseData['verified'] ?? false;
+
+    if (!isVerified || similarity < 70) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Visages non concordants. Similarité: ${similarity.toStringAsFixed(2)}%',
+          ),
+        ),
+      );
+      return;
+    }
+
+    // 2. Proceed with data submission if faces match
+    var request = http.MultipartRequest(
+      'POST',
+      Uri.parse('http://192.168.1.10:5000/save-id-card'), // Point to your Express API endpoint
+    );
+
     request.fields.addAll({
       'family_name': _nomController.text,
       'given_name': _prenomController.text,
@@ -586,55 +640,76 @@ Future<void> _submitForm() async {
       'card_number': _cnumberController.text,
       'birthdate': _birthDateController.text,
       'expiryDate': _enddateController.text,
+      'document_type': _formData['document_type']!,
     });
 
-    // Attach images
-    request.files.add(await http.MultipartFile.fromPath('idCardFront', _frontIdPath!));
-    request.files.add(await http.MultipartFile.fromPath('selfie', _selfiePath!));
+    // Attach the image files for uploading
+    request.files.add(await http.MultipartFile.fromPath(
+      'idCardFront', _frontIdPath!));
+    request.files.add(await http.MultipartFile.fromPath(
+      'idCardFace', _extractedPhoto!.path));
+    request.files.add(await http.MultipartFile.fromPath(
+      'selfie', _selfiePath!));
 
-    if (_extractedPhoto != null) {
-      request.files.add(await http.MultipartFile.fromPath('idCardFace', _extractedPhoto!.path));
-    }
-
-
-    // Show loading dialog
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => const Center(child: CircularProgressIndicator()),
     );
 
-    // Send request
     var response = await request.send();
     final respStr = await response.stream.bytesToString();
     final responseData = jsonDecode(respStr);
-    Navigator.pop(context); // Hide loading
+    Navigator.pop(context);
 
-    if (response.statusCode == 201) {
+    if (response.statusCode == 200 && responseData['success'] == true) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Form submitted successfully')),
+        SnackBar(
+          content: Text(
+            'Enregistrement réussi! Similarité: ${similarity.toStringAsFixed(2)}%',
+          ),
+        ),
       );
-    } else if (response.statusCode == 400 && responseData['error'] == 'NIN déjà enregistré') {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: const Text('Ce NIN est déjà enregistré dans notre système'),
-        backgroundColor: Colors.orange.shade700,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ));
+    } else if (response.statusCode == 400) {
+      if (responseData['message'].contains('already exists')) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text("Doublon détecté"),
+            content: Text(
+              "Ce numéro existe déjà pour: ${_formData['document_type']}",
+              style: const TextStyle(fontSize: 16),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("OK"),
+              ),
+            ],
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: ${responseData['message']}')),
+        );
+      }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${responseData['message']}')),
+        SnackBar(content: Text('Erreur inconnue: ${respStr}')),
       );
     }
   } catch (e) {
-    Navigator.pop(context); // Hide loading on error
+    Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Connection error: ${e.toString()}')),
+      SnackBar(content: Text('Erreur réseau: ${e.toString()}')),
     );
   } finally {
     setState(() => _isProcessing = false);
   }
 }
+
+
+
 
 
   void _autoFillForm() {
@@ -655,7 +730,7 @@ Future<void> _submitForm() async {
       body: Padding(
         padding: EdgeInsets.all(16.0),
         child: Form(
-          key: _formKey,
+          key: _formKey,         
           child: ListView(
             children: [
               TextFormField(

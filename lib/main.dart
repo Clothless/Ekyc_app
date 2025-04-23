@@ -32,24 +32,25 @@ class WelcomePage extends StatefulWidget {
 class _WelcomePageState extends State<WelcomePage> {
   String? selectedOption;
 
-  void navigateToNextPage() {
-    if (selectedOption == "ID Card") {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => Idcard()),
-      );
-    } else if (selectedOption == "Driver License") {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => Driverlicense()),
-      );
-    } else if (selectedOption == "Passport") {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => Passport()),
-      );
-    }
+void navigateToNextPage() {
+  if (selectedOption == "ID Card") {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => Idcard(documentType: selectedOption!)),
+    );
+  } else if (selectedOption == "Driver License") {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => Driverlicense(documentType: selectedOption!)),
+    );
+  } else if (selectedOption == "Passport") {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => Passport(documentType: selectedOption!)),
+    );
   }
+}
+
 
   @override
   Widget build(BuildContext context) {
