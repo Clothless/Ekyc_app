@@ -41,7 +41,7 @@ class _IdcardState extends State<Idcard> {
 
   File? _frontImage;
   File? _backImage;
-
+  String _comparisonResult = '';
   String _extractedendDate = '';
   String _extractedReleaseDate = '';
   String _extractedNIN = '';
@@ -51,7 +51,8 @@ class _IdcardState extends State<Idcard> {
   final bool _isProcessingImage = false;
   String? _processingError;
   String _extractedBirthdate = '';
-
+bool isFacesMatched = false;
+double similarityPercentage = 0.0;
   bool _isProcessing = false;
   bool _isProcessingFront = false;
   bool _isProcessingBack = false;
@@ -123,6 +124,7 @@ void initState() {
     });
 
     await _processImage(File(pickedFile.path), isFront: isFront);
+    await uploadAndCompareFaces();
   }
 
   Future<void> _processImage(File image, {required bool isFront}) async {
@@ -443,6 +445,7 @@ Future<void> _takeSelfie() async {
       setState(() => _selfiePath = croppedFace.path);
     }
   }
+  await uploadAndCompareFaces();
 }
 
 
@@ -572,30 +575,20 @@ Future<void> _takeSelfie() async {
   }
 
 
-
-
-
-
-Future<void> _submitForm() async {
-  if (!_formKey.currentState!.validate()) return;
-
-  if (_frontIdPath == null || _selfiePath == null || _extractedPhoto == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Veuillez uploader toutes les images')),
-    );
-    return;
-  }
-
-  setState(() => _isProcessing = true);
-
+Future<void> uploadAndCompareFaces() async {
   try {
-    // 1. Face comparison first
+    if (_frontIdPath == null || _selfiePath == null) {
+      print("Please upload both images.");
+      return;
+    }
+
+    // Create a multipart request for the face comparison
     var comparisonRequest = http.MultipartRequest(
       'POST',
-      Uri.parse('http://192.168.1.10:8000/compare-faces'), // Point to the FastAPI endpoint
+      Uri.parse('http://192.168.2.211:8000/compare-faces'), // FastAPI endpoint
     );
 
-    // Add the images for comparison
+    // Add files for comparison
     comparisonRequest.files.add(await http.MultipartFile.fromPath(
       'idCardFace', _extractedPhoto!.path));
     comparisonRequest.files.add(await http.MultipartFile.fromPath(
@@ -607,106 +600,133 @@ Future<void> _submitForm() async {
     final comparisonResponseData = jsonDecode(comparisonRespStr);
 
     if (comparisonResponse.statusCode != 200) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur de comparaison: ${comparisonResponseData['message']}')),
-      );
+      setState(() {
+        _comparisonResult = 'Erreur: ${comparisonResponseData['error'] ?? 'Unknown error'}';
+      });
       return;
     }
 
-    final double similarity = comparisonResponseData['similarity_percentage']?.toDouble() ?? 0;
+    final String message = comparisonResponseData['message'] ?? 'No message';
     final bool isVerified = comparisonResponseData['verified'] ?? false;
 
-    if (!isVerified || similarity < 70) {
+    setState(() {
+      _comparisonResult = message;
+    });
+
+  } catch (e) {
+    print('Error during face comparison: $e');
+    setState(() {
+      _comparisonResult = 'Erreur lors de la comparaison: ${e.toString()}';
+    });
+  }
+}
+
+
+  // Method for submitting the form
+  Future<void> _submitForm() async {
+    // Check if the form is valid
+    if (!_formKey.currentState!.validate()) return;
+
+    // Check if the images are uploaded
+    if (_frontIdPath == null || _selfiePath == null || _extractedPhoto == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Visages non concordants. Similarité: ${similarity.toStringAsFixed(2)}%',
-          ),
-        ),
+        const SnackBar(content: Text('Veuillez uploader toutes les images')),
       );
       return;
     }
 
-    // 2. Proceed with data submission if faces match
-    var request = http.MultipartRequest(
-      'POST',
-      Uri.parse('http://192.168.1.10:5000/save-id-card'), // Point to your Express API endpoint
-    );
-
-    request.fields.addAll({
-      'family_name': _nomController.text,
-      'given_name': _prenomController.text,
-      'identity_number': _ninController.text,
-      'card_number': _cnumberController.text,
-      'birthdate': _birthDateController.text,
-      'expiryDate': _enddateController.text,
-      'document_type': _formData['document_type']!,
-    });
-
-    // Attach the image files for uploading
-    request.files.add(await http.MultipartFile.fromPath(
-      'idCardFront', _frontIdPath!));
-    request.files.add(await http.MultipartFile.fromPath(
-      'idCardFace', _extractedPhoto!.path));
-    request.files.add(await http.MultipartFile.fromPath(
-      'selfie', _selfiePath!));
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(child: CircularProgressIndicator()),
-    );
-
-    var response = await request.send();
-    final respStr = await response.stream.bytesToString();
-    final responseData = jsonDecode(respStr);
-    Navigator.pop(context);
-
-    if (response.statusCode == 200 && responseData['success'] == true) {
+    // Check if the faces match before proceeding with the form submission
+    if (_comparisonResult.contains('do not match')) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Enregistrement réussi! Similarité: ${similarity.toStringAsFixed(2)}%',
-          ),
-        ),
+        SnackBar(content: Text('Error saving data: Faces do not match')),
       );
-    } else if (response.statusCode == 400) {
-      if (responseData['message'].contains('already exists')) {
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: const Text("Doublon détecté"),
-            content: Text(
-              "Ce numéro existe déjà pour: ${_formData['document_type']}",
-              style: const TextStyle(fontSize: 16),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("OK"),
-              ),
-            ],
-          ),
+      return; // Stop the form submission if faces don't match
+    }
+
+    setState(() => _isProcessing = true);
+
+    try {
+      // Proceed with the data submission if faces match
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('http://192.168.2.211:5000/save-id-card'), // Point to your Express API endpoint
+      );
+
+      // Add form data to the request
+      request.fields.addAll({
+        'family_name': _nomController.text,
+        'given_name': _prenomController.text,
+        'identity_number': _ninController.text,
+        'card_number': _cnumberController.text,
+        'birthdate': _birthDateController.text,
+        'expiryDate': _enddateController.text,
+        'document_type': 'ID_CARD', // Example document type
+      });
+
+      // Attach the image files for uploading
+      request.files.add(await http.MultipartFile.fromPath(
+        'idCardFront', _frontIdPath!));
+      request.files.add(await http.MultipartFile.fromPath(
+        'idCardFace', _extractedPhoto!.path));
+      request.files.add(await http.MultipartFile.fromPath(
+        'selfie', _selfiePath!));
+
+      // Show loading dialog while the request is being processed
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      // Send the request to the server
+      var response = await request.send();
+      final respStr = await response.stream.bytesToString();
+      final responseData = jsonDecode(respStr);
+      Navigator.pop(context); // Close the loading dialog
+
+      // Handle the server response
+      if (response.statusCode == 200 && responseData['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Enregistrement réussi!')),
         );
+      } else if (response.statusCode == 400) {
+        if (responseData['message'].contains('already exists')) {
+          showDialog(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Text("Doublon détecté"),
+              content: Text(
+                "Ce numéro existe déjà pour: ${_formData['document_type']}",
+                style: const TextStyle(fontSize: 16),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("OK"),
+                ),
+              ],
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur: ${responseData['message']}')),
+          );
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: ${responseData['message']}')),
+          SnackBar(content: Text('Erreur inconnue: ${respStr}')),
         );
       }
-    } else {
+    } catch (e) {
+      Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur inconnue: ${respStr}')),
+        SnackBar(content: Text('Erreur réseau: ${e.toString()}')),
       );
+    } finally {
+      setState(() => _isProcessing = false);
     }
-  } catch (e) {
-    Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Erreur réseau: ${e.toString()}')),
-    );
-  } finally {
-    setState(() => _isProcessing = false);
   }
-}
+
 
 
 
@@ -845,9 +865,17 @@ Future<void> _submitForm() async {
                             child: Image.file(File(_selfiePath!),
                                 width: 100, height: 100, fit: BoxFit.cover),
                           ),
+                              if (_comparisonResult.isNotEmpty)
+      Text(
+        _comparisonResult,
+        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+      ),
+
                       ],
+                      
                     ),
                   ),
+
                 ],
               ),
               SizedBox(height: 20),
