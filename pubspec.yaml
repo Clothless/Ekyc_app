@@ -28,6 +28,8 @@ dependencies:
   image_cropper: ^9.0.0
   google_mlkit_face_detection: ^0.12.0
   google_ml_kit: ^0.19.0
+  lottie: ^2.6.0
+  google_fonts: ^6.1.0
 
   
 
@@ -41,6 +43,32 @@ flutter:
   assets:
   - assets/
   - assets/tessdata/
+  - assets/fonts/
   - assets/tessdata/ara.traineddata
   - assets/tessdata_config.json
+  - assets/lottie/bg_animation.json
+  - assets/images/logo.png
+  - assets/images/background.png
+  - assets/images/selfie.png
+  - assets/images/id.png
+  - assets/images/idcard.png
+  - assets/images/backidcard.png
+  - assets/images/carte.png
+  - assets/images/passeport.png
+  - assets/images/passportcard.png
+  - assets/images/drivinglicense.png
+  - assets/lottie/idcard.json
+  - assets/lottie/scanidcard.json
+  - assets/lottie/selfie.json
+  - assets/lottie/cardchoosing.json
+  - assets/lottie/identity.json
+  - assets/lottie/welcome.json
+  - assets/lottie/idscan.json
+  
+  fonts:
+    - family: Poppins
+      fonts:
+        - asset: assets/fonts/Poppins-Regular.ttf
+
+
 

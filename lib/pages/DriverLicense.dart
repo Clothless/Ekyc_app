@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:camera/camera.dart';
+import 'package:flutter/services.dart';
 
 import 'package:google_ml_kit/google_ml_kit.dart';
 import 'package:image/image.dart' as img;
@@ -40,13 +41,17 @@ class _DriverlicenseState extends State<Driverlicense> {
   final TextEditingController _enddateController = TextEditingController();
   final TextEditingController _backnumberController = TextEditingController();
 
+  String? _frontCardNumber;
+  String? _backCardNumber;
   File? _frontImage;
   File? _backImage;
+  bool _frontUploaded = false;
+  bool _backUploaded = false;
   String _extractedBirthPlace = '';
   String _extractedendDate = '';
   String _extractedReleaseDate = '';
   String _extractedNIN = '';
-    String _comparisonResult = '';
+  String _comparisonResult = '';
   String _extractedCardnumber = '';
   String _extractedNom = '';
   String _extractedPrenom = '';
@@ -84,9 +89,66 @@ class _DriverlicenseState extends State<Driverlicense> {
     _formData['document_type'] = widget.documentType;
   }
 
+  // Helper function to normalize the OCR text
+
   List<CameraDescription>? _cameras;
   Future<void> _initializeCamera() async {
     _cameras = await availableCameras();
+  }
+
+  void _showImageSourceDialog(BuildContext context, {required bool isFront}) {
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Take a photo'),
+              onTap: () {
+                Navigator.of(context).pop();
+                _pickDriverlicense(ImageSource.camera, isFront: isFront);
+
+                setState(() {
+                  if (isFront) {
+                    _frontUploaded = true;
+                  } else {
+                    _backUploaded = true;
+                  }
+                });
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Choose from gallery'),
+              onTap: () {
+                Navigator.of(context).pop();
+                _pickDriverlicense(ImageSource.gallery, isFront: isFront);
+                setState(() {
+                  if (isFront) {
+                    _frontUploaded = true;
+                  } else {
+                    _backUploaded = true;
+                  }
+                });
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _removeImage(bool isFront) {
+    setState(() {
+      if (isFront) {
+        _frontUploaded = false;
+        _clearFields(isFront);
+      } else {
+        _backUploaded = false;
+        _clearFields(isFront);
+      }
+    });
   }
 
   Future<void> _pickDriverlicense(ImageSource source,
@@ -106,9 +168,11 @@ class _DriverlicenseState extends State<Driverlicense> {
       if (isFront) {
         _frontImage = savedImage;
         _frontIdPath = savedImage.path;
+        _frontUploaded = true;
       } else {
         _backImage = savedImage;
         _backIdPath = savedImage.path;
+        _backUploaded = true;
       }
     });
 
@@ -123,6 +187,7 @@ class _DriverlicenseState extends State<Driverlicense> {
     });
 
     await _processImage(File(pickedFile.path), isFront: isFront);
+    await uploadAndCompareFaces();
   }
 
   Future<void> _processImage(File image, {required bool isFront}) async {
@@ -134,17 +199,40 @@ class _DriverlicenseState extends State<Driverlicense> {
       _ocrText = _normalizeText(recognizedText.text);
 
       if (isFront) {
-        _batchFrontExtraction();
-        _autoFillForm();
+        // Perform front image verification
+        await _verificationFront(_ocrText); // Call verification first
+        if (_isVerified) {
+          // Proceed with extraction if verified
+          _batchFrontExtraction(); // Proceed only if the document is verified
+          _autoFillForm();
 
-        // Handle image cropping with safe context
-        final croppedFile = await autoCropIdPhoto(image);
-        if (croppedFile != null) {
-          setState(() => _extractedPhoto = croppedFile);
+          // Handle image cropping with safe context
+          final croppedFile = await autoCropIdPhoto(image);
+          if (croppedFile != null) {
+            setState(() => _extractedPhoto = croppedFile);
+          }
+        } else {
+          _showCustomDialog(
+            title: "DL Card not valid",
+            message: "Make sure you upload a valid driving license card.",
+            icon: Icons.cancel_presentation_rounded,
+            iconColor: Colors.orange,
+          );
         }
       } else {
-        _processBackOCR(recognizedText.text);
-        _autoFillForm();
+        await _verificationBack(_ocrText);
+        if (_isVerified) {
+          _processBackOCR(recognizedText.text);
+
+          _autoFillForm();
+        } else {
+          _showCustomDialog(
+            title: "DL Card not valid",
+            message: "Make sure you upload a valid driving license card.",
+            icon: Icons.cancel_presentation_rounded,
+            iconColor: Colors.orange,
+          );
+        }
       }
     } catch (e) {
       setState(() => _processingError = 'OCR failed: ${e.toString()}');
@@ -160,21 +248,59 @@ class _DriverlicenseState extends State<Driverlicense> {
     }
   }
 
+  String _normalizeText(String text) {
+    return text.replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+  }
+
+  // Show success or error messages for OCR and document verification
+
+  // Front OCR processing to detect if it's a driving license
+  Future<void> _verificationFront(String text) async {
+    if (text.toLowerCase().contains('driving')) {
+      setState(() {
+        _isVerified = true;
+      });
+    } else {
+      setState(() {
+        _isVerified = false;
+      });
+    }
+  }
+
+  // Back OCR processing to verify document type based on text
+  Future<void> _verificationBack(String text) async {
+    if (text.toLowerCase().contains('dldz')) {
+      setState(() {
+        _isVerified = true;
+      });
+    } else {
+      setState(() {
+        _isVerified = false;
+      });
+    }
+  }
+
   void _processFrontOCR(String text) {}
 
   void _processBackOCR(String text) {
-    // Extract nom and prenom from back
+    // Check if the document is verified as a Driving License
+
+    // Extract nom and prenom from the back if the document is verified
+    setState(() {
+      _extractEndDate();
+      _extractBirthdate();
+      _extractBackCardNumber(text);
+      _extractedNom = _extractFamilyName(text);
+      _extractedPrenom = _extractGivenName(text);
+    });
   }
 
   void _batchFrontExtraction() {
+    // Check if the document is verified as a Driving License
+
     try {
       _extractNIN();
       _extractCardnumber();
-      _extractedNom = _extractFamilyName(_ocrText);
-      _extractedPrenom = _extractGivenName(_ocrText);
-      _extractedBirthdate = _extractBirthdate(_ocrText);
-      _extractedReleaseDate = _extractReleaseDate(_ocrText);
-      _extractedendDate = _extractEndDate(_ocrText);
     } catch (e) {
       setState(
           () => _processingError = 'Data extraction error: ${e.toString()}');
@@ -245,7 +371,13 @@ class _DriverlicenseState extends State<Driverlicense> {
   void _extractNIN() {
     String? nin;
 
-    // Pattern 1: Direct keyword match
+    final cleanText = _ocrText.replaceAll('\n', ' ').toLowerCase();
+
+    // Match either:
+    // 1. 18 digits with optional single spaces between them
+    // 2. Or 18 consecutive digits
+    final regex = RegExp(r'\b(?:\d\s?){18}\b');
+
     const keywords = [
       'رقم التعريف الوطني',
       'الوطني التعريف رقم',
@@ -253,24 +385,24 @@ class _DriverlicenseState extends State<Driverlicense> {
       'nin'
     ];
 
-    // Search for keyword patterns
     for (final keyword in keywords) {
-      final index = _ocrText.indexOf(keyword);
+      final index = cleanText.indexOf(keyword);
       if (index != -1) {
-        final textAfter = _ocrText.substring(index + keyword.length);
-        final match = RegExp(r'\d{18}').firstMatch(textAfter);
+        final afterKeyword = cleanText.substring(index, index + 100);
+        final match = regex.firstMatch(afterKeyword);
         if (match != null) {
-          nin = match.group(0);
+          // Remove spaces to store only digits
+          nin = match.group(0)?.replaceAll(' ', '');
           break;
         }
       }
     }
 
-    // Pattern 2: Standalone 18-digit number (fallback)
+    // Fallback search
     if (nin == null) {
-      final matches = RegExp(r'\b\d{18}\b').allMatches(_ocrText);
-      if (matches.isNotEmpty) {
-        nin = matches.first.group(0);
+      final match = regex.firstMatch(cleanText);
+      if (match != null) {
+        nin = match.group(0)?.replaceAll(' ', '');
       }
     }
 
@@ -278,38 +410,127 @@ class _DriverlicenseState extends State<Driverlicense> {
 
     if (_extractedNIN.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('NIN not found. Try better quality image')),
+        SnackBar(content: Text('NIN not found. Try a clearer image.')),
       );
-      debugPrint('OCR Text:\n$_ocrText'); // For debugging
+      debugPrint('OCR Text:\n$_ocrText');
+    } else {
+      debugPrint('Extracted NIN: $_extractedNIN');
     }
   }
 
   String _extractFamilyName(String text) {
-    final match =
-        RegExp(r'2\.\s*([\p{L}\s-]+)', unicode: true).firstMatch(text);
-    return match?.group(1)?.trim() ?? '';
+    // Match all letters and optional spaces before the first '<<'
+    final familyMatch = RegExp(r'([a-zA-Z\s]+)<<\s*[a-zA-Z]').firstMatch(text);
+
+    if (familyMatch != null) {
+      // Remove spaces and return the result
+      return familyMatch.group(1)!.replaceAll(RegExp(r'\s+'), '');
+    }
+    return '';
   }
 
   String _extractGivenName(String text) {
-    final matches =
-        RegExp(r'2\.\s*([\p{L}\s-]+)', unicode: true).allMatches(text).toList();
-    return matches.length > 1 ? matches[1].group(1)?.trim() ?? '' : '';
+    // Extract the part after the first '<<' (family name) and before the next '<<' (given name)
+    final givenMatch = RegExp(r'<<([a-zA-Z]+)<<').firstMatch(text);
+    // Clean any non-alphabetical characters if needed
+    return givenMatch?.group(1)?.replaceAll(RegExp(r'[^a-zA-Z]'), '') ?? '';
   }
 
-  String _extractBirthdate(String text) {
-    final match = RegExp(r'3\.\s*(\d{2}\.\d{2}\.\d{4})').firstMatch(text);
-    return match?.group(1)?.trim() ?? '';
+  void _extractBirthdate() {
+    String? birthdate;
+
+    debugPrint('Extracted OCR Text:\n$_ocrText');
+
+    // Normalize OCR text: remove newlines, lowercase
+    final text = _ocrText.replaceAll('\n', ' ').toLowerCase();
+
+    // Match 6 digits with possible spaces before m or f
+    final match = RegExp(r'([\d\s]{6,10})\s*[mf]').firstMatch(text);
+
+    if (match != null) {
+      // Extract matched group and remove all spaces
+      final rawDigits = match.group(1)?.replaceAll(RegExp(r'\s+'), '');
+      if (rawDigits != null && rawDigits.length >= 6) {
+        final digits =
+            rawDigits.substring(0, 6); // Take only the first 6 digits
+        birthdate = _formatDate(digits);
+        debugPrint('Extracted Birthdate: $birthdate');
+      }
+    }
+
+    // Update UI state
+    setState(() => _extractedBirthdate = birthdate ?? '');
+
+    if (_extractedBirthdate.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('Birthdate not found. Try a better quality image')),
+      );
+      debugPrint('Birthdate NOT FOUND!');
+    }
   }
 
-  String _extractReleaseDate(String text) {
-    final match = RegExp(r'4a\.\s*(\d{2}\.\d{2}\.\d{4})').firstMatch(text);
-    return match?.group(1)?.trim() ?? '';
+  void _extractEndDate() {
+    String? endDate;
+
+    debugPrint('Extracted OCR Text:\n$_ocrText');
+
+    // Normalize OCR text: remove newlines, lowercase
+    final text = _ocrText.replaceAll('\n', ' ').toLowerCase();
+
+    // Match pattern: m or f followed by up to 10 characters containing digits and spaces
+    final match = RegExp(r'[mf]\s*([\d\s]{6,10})').firstMatch(text);
+
+    if (match != null) {
+      // Extract matched group and remove spaces
+      final rawDigits = match.group(1)?.replaceAll(RegExp(r'\s+'), '');
+      if (rawDigits != null && rawDigits.length >= 6) {
+        final digits = rawDigits.substring(0, 6); // Take the first 6 digits
+        endDate = _formatDate(digits);
+        debugPrint('Extracted Expiry Date: $endDate');
+      }
+    }
+
+    // Update UI state
+    setState(() => _extractedendDate = endDate ?? '');
+
+    if (_extractedendDate.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('Expiry Date not found. Try a better quality image')),
+      );
+      debugPrint('Expiry Date NOT FOUND!');
+    }
   }
 
-  String _extractEndDate(String text) {
-    final match =
-        RegExp(r'(4b\.|ab\.)\s*(\d{2}\.\d{2}\.\d{4})').firstMatch(text);
-    return match?.group(2)?.trim() ?? '';
+  String _formatDate(String yyMMdd) {
+    int year = int.parse(yyMMdd.substring(0, 2));
+    String month = yyMMdd.substring(2, 4);
+    String day = yyMMdd.substring(4, 6);
+
+    // Handle 20th & 21st century correction
+    int fullYear = (year > 50) ? (1900 + year) : (2000 + year);
+
+    return '$day.$month.$fullYear';
+  }
+
+  void _extractBackCardNumber(String input) {
+    // Remove all spaces from the input
+    String cleanInput = input.replaceAll(' ', '');
+
+    // Regular expression to find 9 alphanumeric characters after 'IDDZA'
+    RegExp regex = RegExp(r'DLDZA([A-Z0-9]{9})', caseSensitive: false);
+
+    // Search for a match
+    Match? match = regex.firstMatch(cleanInput);
+
+    if (match != null) {
+      _backCardNumber = match.group(1);
+      print('Back card number: $_backCardNumber');
+    } else {
+      _backCardNumber = null;
+      print('Card number not found.');
+    }
   }
 
   void _extractCardnumber() {
@@ -350,114 +571,6 @@ class _DriverlicenseState extends State<Driverlicense> {
     }
   }
 
-  void extractBirthplace() {
-    String? birthplace;
-
-    // Debug: Print OCR text
-    debugPrint('Extracted OCR Text:\n$_ocrText');
-
-    // Arabic variations of "مكان الميلاد" with common OCR errors
-    final keywords = [
-      r'مكان الميلاد', // Standard
-      r'مكانلالميلاد', // Missing space
-      r'مكان الميلاد:', // With colon
-      r'مكان الميلاد :', // With space and colon
-      r'مكانلانميلا', // Common OCR misreads
-      r'مکان الميلاد', // Alternate character
-    ];
-
-    // Build regex pattern to match variations
-    final keywordPattern = RegExp(
-      '(${keywords.join('|')})',
-      caseSensitive: false,
-    );
-
-    // Find the keyword
-    final keywordMatch = keywordPattern.firstMatch(_ocrText);
-
-    if (keywordMatch != null) {
-      final textAfterKeyword = _ocrText.substring(keywordMatch.end);
-
-      // Debug: Print text after keyword
-      debugPrint('Text after keyword: $textAfterKeyword');
-
-      // Match Arabic text until end of line or next number/date
-      final birthplaceMatch = RegExp(
-        r'([\u0600-\u06FF\s]+)(?=\n|\d|$)',
-        multiLine: true,
-      ).firstMatch(textAfterKeyword);
-
-      if (birthplaceMatch != null) {
-        // Clean extracted text
-        birthplace = birthplaceMatch
-            .group(0)!
-            .replaceAll(RegExp(r'[^\u0600-\u06FF\s]'), '') // Remove non-Arabic
-            .trim();
-
-        debugPrint('Raw birthplace: ${birthplaceMatch.group(0)}');
-        debugPrint('Cleaned birthplace: $birthplace');
-      } else {
-        debugPrint('No Arabic text found after keyword.');
-      }
-    } else {
-      debugPrint('Keyword "مكان الميلاد" not found in OCR text.');
-    }
-
-    setState(() => _extractedBirthPlace = birthplace ?? '');
-
-    if (_extractedBirthPlace.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Birthplace not found. Try clearer image')),
-      );
-      debugPrint('Failed OCR Text:\n$_ocrText');
-    }
-  }
-
-  String _extractNom(String text) {
-    final lines = text.split('\n');
-    for (var line in lines) {
-      if (line.toLowerCase().startsWith('2.')) {
-        return line.substring(2).trim();
-      }
-    }
-    return '';
-  }
-
-  String _extractPrenom(String text) {
-    final lines = text.split('\n');
-    for (var line in lines) {
-      if (line.toLowerCase().startsWith('2.')) {
-        return line.substring(2).trim();
-      }
-    }
-    return '';
-  }
-
-  String _normalizeText(String text) {
-    // Clean text for better processing
-    return text
-        .replaceAll(RegExp(r'\s+'), ' ') // Collapse whitespace
-        .replaceAll(RegExp(r'[٫,_-]'), '') // Remove common separators
-        .toLowerCase();
-  }
-
-  String _normalizeName(String name) {
-    return name
-        .trim()
-        .toLowerCase()
-        .replaceAll(RegExp(r'\s+'), ' ') // Enlève les espaces multiples
-        .replaceAll(RegExp(r'[^\wàâçéèêëîïôûùüÿñæœ]'),
-            ''); // Garde les caractères spéciaux français
-  }
-
-  //Future<void> _takeSelfie() async {
-  // final picker = ImagePicker();
-  // final image = await picker.pickImage(source: ImageSource.camera);
-  //if (image != null) {
-  //  setState(() => _selfiePath = image.path);
-  //  }
-  //}
-
   Future<void> _takeSelfie() async {
     final XFile? imageFile =
         await _picker.pickImage(source: ImageSource.camera);
@@ -472,6 +585,7 @@ class _DriverlicenseState extends State<Driverlicense> {
         setState(() => _selfiePath = croppedFace.path);
       }
     }
+    await uploadAndCompareFaces();
   }
 
   Future<Face?> _detectFace(File imageFile) async {
@@ -479,7 +593,7 @@ class _DriverlicenseState extends State<Driverlicense> {
     final faceDetector = FaceDetector(
       options: FaceDetectorOptions(
         enableContours: true,
-        enableClassification: true, // Enable eye open/closed detection
+        enableClassification: true,
         performanceMode: FaceDetectorMode.accurate,
       ),
     );
@@ -488,43 +602,58 @@ class _DriverlicenseState extends State<Driverlicense> {
     await faceDetector.close();
 
     if (faces.isEmpty) {
-      _showErrorDialog(
-          "No face detected. Make sure your face is visible and well-lit.");
+      _showCustomDialog(
+        title: "No face detected",
+        message: "Make sure your face is clearly visible and well lit.",
+        icon: Icons.visibility_off,
+        iconColor: Colors.red,
+      );
       return null;
     }
 
     if (faces.length != 1) {
-      _showErrorDialog(
-          "Multiple faces detected. Ensure only your face is in the frame.");
+      _showCustomDialog(
+        title: "Multiple faces detected",
+        message: "Make sure you are alone in the frame.",
+        icon: Icons.people_outline,
+        iconColor: Colors.orange,
+      );
       return null;
     }
 
     Face face = faces.first;
 
-    // **Check Lighting Condition**
-
-    // **Check for Blurry Image**
-
-    // **Check if Eyes Are Open**
     if (face.leftEyeOpenProbability != null &&
         face.rightEyeOpenProbability != null) {
       if (face.leftEyeOpenProbability! < 0.3 &&
           face.rightEyeOpenProbability! < 0.3) {
-        _showErrorDialog(
-            "Your eyes are closed. Please open them and try again.");
+        _showCustomDialog(
+          title: "Closed eyes",
+          message: "Make sur your eyes are opened and retry",
+          icon: Icons.remove_red_eye,
+          iconColor: Colors.deepOrange,
+        );
         return null;
       }
     }
 
-    // **Check Head Alignment**
     if (face.headEulerAngleY != null && (face.headEulerAngleY!.abs() > 10)) {
-      _showErrorDialog(
-          "Keep your head straight and look directly at the camera.");
+      _showCustomDialog(
+        title: "Head not aligned",
+        message: "Keep your head straight and look at the camera.",
+        icon: Icons.screen_rotation_alt,
+        iconColor: Colors.amber,
+      );
       return null;
     }
 
     if (face.headEulerAngleZ != null && (face.headEulerAngleZ!.abs() > 10)) {
-      _showErrorDialog("Please avoid tilting your head.");
+      _showCustomDialog(
+        title: "Tilt detected",
+        message: "Avoid tilting your head.",
+        icon: Icons.rotate_90_degrees_ccw,
+        iconColor: Colors.amber,
+      );
       return null;
     }
 
@@ -599,84 +728,93 @@ class _DriverlicenseState extends State<Driverlicense> {
     }
   }
 
-Future<void> uploadAndCompareFaces() async {
-  try {
-    if (_frontIdPath == null || _selfiePath == null) {
-      print("Please upload both images.");
-      return;
-    }
+  Future<void> uploadAndCompareFaces() async {
+    try {
+      if (_frontIdPath == null || _selfiePath == null) {
+        print("Please upload both images.");
+        return;
+      }
 
-    // Create a multipart request for the face comparison
-    var comparisonRequest = http.MultipartRequest(
-      'POST',
-      Uri.parse('http://192.168.2.211:8000/compare-faces'), // FastAPI endpoint
-    );
+      // Create a multipart request for the face comparison
+      var comparisonRequest = http.MultipartRequest(
+        'POST',
+        Uri.parse('http://192.168.1.7:8000/compare-faces'), // FastAPI endpoint
+      );
 
-    // Add files for comparison
-    comparisonRequest.files.add(await http.MultipartFile.fromPath(
-      'idCardFace', _extractedPhoto!.path));
-    comparisonRequest.files.add(await http.MultipartFile.fromPath(
-      'selfie', _selfiePath!));
+      // Add files for comparison
+      comparisonRequest.files.add(await http.MultipartFile.fromPath(
+          'idCardFace', _extractedPhoto!.path));
+      comparisonRequest.files
+          .add(await http.MultipartFile.fromPath('selfie', _selfiePath!));
 
-    // Send the request
-    var comparisonResponse = await comparisonRequest.send();
-    final comparisonRespStr = await comparisonResponse.stream.bytesToString();
-    final comparisonResponseData = jsonDecode(comparisonRespStr);
+      // Send the request
+      var comparisonResponse = await comparisonRequest.send();
+      final comparisonRespStr = await comparisonResponse.stream.bytesToString();
+      final comparisonResponseData = jsonDecode(comparisonRespStr);
 
-    if (comparisonResponse.statusCode != 200) {
+      if (comparisonResponse.statusCode != 200) {
+        setState(() {
+          _comparisonResult =
+              'Erreur: ${comparisonResponseData['error'] ?? 'Unknown error'}';
+        });
+        return;
+      }
+
+      final String message = comparisonResponseData['message'] ?? 'No message';
+      final bool isVerified = comparisonResponseData['verified'] ?? false;
+
       setState(() {
-        _comparisonResult = 'Erreur: ${comparisonResponseData['error'] ?? 'Unknown error'}';
+        _comparisonResult = message;
       });
-      return;
+    } catch (e) {
+      print('Error during face comparison: $e');
+      setState(() {
+        _comparisonResult = 'Error while comparing: ${e.toString()}';
+      });
     }
-
-    final String message = comparisonResponseData['message'] ?? 'No message';
-    final bool isVerified = comparisonResponseData['verified'] ?? false;
-
-    setState(() {
-      _comparisonResult = message;
-    });
-
-  } catch (e) {
-    print('Error during face comparison: $e');
-    setState(() {
-      _comparisonResult = 'Erreur lors de la comparaison: ${e.toString()}';
-    });
   }
-}
-
 
   // Method for submitting the form
   Future<void> _submitForm() async {
-    // Check if the form is valid
     if (!_formKey.currentState!.validate()) return;
 
-    // Check if the images are uploaded
-    if (_frontIdPath == null || _selfiePath == null || _extractedPhoto == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez uploader toutes les images')),
-      );
+    if (_frontIdPath == null ||
+        _selfiePath == null ||
+        _extractedPhoto == null) {
+      _showCustomSnackbar('Please upload all images');
       return;
     }
 
-    // Check if the faces match before proceeding with the form submission
     if (_comparisonResult.contains('do not match')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error saving data: Faces do not match')),
-      );
-      return; // Stop the form submission if faces don't match
+      _showCustomSnackbar('Error: Faces do not match');
+      return;
+    }
+    if (_frontCardNumber != null &&
+        _backCardNumber != null &&
+        _frontCardNumber != _backCardNumber) {
+      _showCustomSnackbar('Error: Front and back are from different cards');
+      return;
+    }
+
+    try {
+      final expiry = DateFormat('dd.MM.yyyy').parse(_extractedendDate);
+      if (expiry.isBefore(DateTime.now())) {
+        _showCustomSnackbar('Card expired. Please use a valid card.');
+        return;
+      }
+    } catch (e) {
+      _showCustomSnackbar("Invalid Expiry Date");
+      return;
     }
 
     setState(() => _isProcessing = true);
 
     try {
-      // Proceed with the data submission if faces match
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('http://192.168.2.211:5000/save-id-card'), // Point to your Express API endpoint
+        Uri.parse('http://192.168.1.7:5000/save-id-card'),
       );
 
-      // Add form data to the request
       request.fields.addAll({
         'family_name': _nomController.text,
         'given_name': _prenomController.text,
@@ -684,73 +822,110 @@ Future<void> uploadAndCompareFaces() async {
         'card_number': _cnumberController.text,
         'birthdate': _birthDateController.text,
         'expiryDate': _enddateController.text,
-        'document_type': 'ID_CARD', // Example document type
+        'document_type': 'Driving License',
       });
 
-      // Attach the image files for uploading
+      request.files
+          .add(await http.MultipartFile.fromPath('idCardFront', _frontIdPath!));
       request.files.add(await http.MultipartFile.fromPath(
-        'idCardFront', _frontIdPath!));
-      request.files.add(await http.MultipartFile.fromPath(
-        'idCardFace', _extractedPhoto!.path));
-      request.files.add(await http.MultipartFile.fromPath(
-        'selfie', _selfiePath!));
+          'idCardFace', _extractedPhoto!.path));
+      request.files
+          .add(await http.MultipartFile.fromPath('selfie', _selfiePath!));
 
-      // Show loading dialog while the request is being processed
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
 
-      // Send the request to the server
       var response = await request.send();
       final respStr = await response.stream.bytesToString();
       final responseData = jsonDecode(respStr);
-      Navigator.pop(context); // Close the loading dialog
+      Navigator.pop(context);
 
-      // Handle the server response
       if (response.statusCode == 200 && responseData['success'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Enregistrement réussi!')),
-        );
+        _showCustomSnackbar('Registration successful!', success: true);
       } else if (response.statusCode == 400) {
         if (responseData['message'].contains('already exists')) {
-          showDialog(
-            context: context,
-            builder: (_) => AlertDialog(
-              title: const Text("Doublon détecté"),
-              content: Text(
-                "Ce numéro existe déjà pour: ${_formData['document_type']}",
-                style: const TextStyle(fontSize: 16),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("OK"),
-                ),
-              ],
-            ),
+          _showCustomDialog(
+            title: "Duplicate detected",
+            message:
+                "This identity number already exist for: ${_formData['document_type']}",
+            icon: Icons.warning,
+            iconColor: Colors.orange,
           );
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur: ${responseData['message']}')),
-          );
+          _showCustomSnackbar('Error: ${responseData['message']}');
         }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur inconnue: ${respStr}')),
-        );
+        _showCustomSnackbar('Uknown Error: $respStr');
       }
     } catch (e) {
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur réseau: ${e.toString()}')),
-      );
+      _showCustomSnackbar('Network Error: ${e.toString()}');
     } finally {
       setState(() => _isProcessing = false);
     }
   }
 
+  void _showCustomSnackbar(String message, {bool success = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(success ? Icons.check_circle : Icons.error,
+                color: Colors.white),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: success ? Colors.green : Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  void _showCustomDialog({
+    required String title,
+    required String message,
+    IconData icon = Icons.info,
+    Color iconColor = Colors.blue,
+  }) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: iconColor),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("OK"),
+          ),
+        ],
+      ),
+    );
+  }
 
   void _autoFillForm() {
     setState(() {
@@ -763,243 +938,322 @@ Future<void> uploadAndCompareFaces() async {
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text('Id Card Form')),
-      body: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            children: [
-              TextFormField(
-                controller: _nomController,
-                decoration: const InputDecoration(
-                  labelText: 'Family name',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) =>
-                    value!.isEmpty ? 'Please enter your last name' : null,
-                onChanged: (value) => _formData['family_name'] = value,
-              ),
-              SizedBox(height: 10),
-              TextFormField(
-                controller: _prenomController,
-                decoration: const InputDecoration(
-                  labelText: 'Given name',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) =>
-                    value!.isEmpty ? 'Please enter your first name' : null,
-                onChanged: (value) => _formData['given_name'] = value,
-              ),
-              SizedBox(height: 10),
-              TextFormField(
-                controller: _ninController,
-                decoration: const InputDecoration(
-                  labelText: 'Identity number',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.number,
-                maxLength: 18,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter NIN';
-                  }
-                  if (value.length != 18) {
-                    return 'NIN must be 18 digits';
-                  }
-                  return null;
-                },
-                onChanged: (value) => _formData['identity_number'] = value,
-              ),
-              SizedBox(height: 10),
-              TextFormField(
-                controller: _cnumberController,
-                decoration: const InputDecoration(
-                  labelText: 'Card number',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.number,
-                maxLength: 9,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter Card Number';
-                  }
-                  if (value.length != 9) {
-                    return 'Card number must be 9 digits';
-                  }
-                  return null;
-                },
-                onChanged: (value) => _formData['card_number'] = value,
-              ),
-              SizedBox(height: 10),
-              TextFormField(
-                controller: _birthDateController,
-                decoration: const InputDecoration(
-                  labelText: 'Date de naissance',
-                  border: OutlineInputBorder(),
-                  suffixIcon: Icon(Icons.calendar_today),
-                ),
-                onTap: () => _selectDate(context),
-                validator: (value) =>
-                    value!.isEmpty ? 'Please select birth date' : null,
-                onChanged: (value) => _formData['birthdate'] = value,
-              ),
-              SizedBox(height: 20),
-              TextFormField(
-                controller: _enddateController,
-                decoration: const InputDecoration(
-                  labelText: 'Expiry Date',
-                  border: OutlineInputBorder(),
-                  suffixIcon: Icon(Icons.calendar_today),
-                ),
-                onTap: () => _selectDate(context),
-                validator: (value) =>
-                    value!.isEmpty ? 'Please select expiry date' : null,
-                onChanged: (value) => _formData['expiryDate'] = value,
-              ),
-              SizedBox(height: 20),
-              if (_extractedPhoto != null)
-                Column(
-                  children: [
-                    const SizedBox(height: 20),
-                    Text('Extracted ID Photo:',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                    Image.file(_extractedPhoto!, height: 150),
-                  ],
-                ),
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      children: [
-                        ElevatedButton(
-                          onPressed: _takeSelfie,
-                          child: Text("Take Selfie"),
-                        ),
-                        if (_selfiePath != null)
-                          Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: Image.file(File(_selfiePath!),
-                                width: 100, height: 100, fit: BoxFit.cover),
-                          ),
-                                                        if (_comparisonResult.isNotEmpty)
-      Text(
-        _comparisonResult,
-        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-      ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+  bool get _isFrontDataFilled =>
+      _cnumberController.text.isNotEmpty || _ninController.text.isNotEmpty;
 
-              SizedBox(height: 20),
-              _buildUploadSection(
-                title: 'Front Driver License Card',
-                image: _frontImage,
-                isProcessing: _isProcessingFront,
-                onTap: () =>
-                    _pickDriverlicense(ImageSource.gallery, isFront: true),
-                extractedInfo: [
-                  _buildComparison('NIN', _extractedNIN, _ninController.text),
-                  _buildComparison('Birthdate', _extractedBirthdate,
-                      _birthDateController.text),
-                  _buildComparison('Card number', _extractedCardnumber,
-                      _cnumberController.text),
-                  _buildComparison('Nom', _extractedNom, _nomController.text),
-                  _buildComparison(
-                      'Prénom', _extractedPrenom, _prenomController.text),
-                  // _buildComparison('Birthdate Place', _extractedBirthPlace,
-                  //  _birthplaceController.text),
-                  // _buildComparison('Release Date', _extractedReleaseDate,
-                  //_releasedateController.text),
-                  _buildComparison(
-                      'End Date', _extractedendDate, _enddateController.text),
-                ],
-              ),
+  bool get _isBackDataFilled =>
+      _nomController.text.isNotEmpty ||
+      _prenomController.text.isNotEmpty ||
+      _birthDateController.text.isNotEmpty ||
+      _enddateController.text.isNotEmpty;
 
-              // Back ID Section
-              _buildUploadSection(
-                title: 'Back Driver License Card',
-                image: _backImage,
-                isProcessing: _isProcessingBack,
-                onTap: () =>
-                    _pickDriverlicense(ImageSource.gallery, isFront: false),
-                extractedInfo: [],
-              ),
-              ElevatedButton(
-                onPressed: _submitForm,
-                child: Text('Submit'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  void _clearFields(bool isFront) {
+    if (isFront) {
+      _cnumberController.clear();
+      _ninController.clear();
+    } else {
+      _nomController.clear();
+      _prenomController.clear();
+      _birthDateController.clear();
+      _enddateController.clear();
+    }
   }
 
-  Widget _buildUploadSection({
-    required String title,
-    required File? image,
-    required bool isProcessing,
-    required VoidCallback onTap,
-    required List<Widget> extractedInfo,
-  }) {
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Text(title,
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            SizedBox(height: 10),
-            GestureDetector(
-              onTap: onTap,
-              child: Container(
-                height: 50,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: image != null
-                    ? Image.file(image, fit: BoxFit.cover)
-                    : Icon(Icons.upload, size: 40),
+// ✅ Version sans carte : formulaire directement dans l'espace blanc entre les vagues
+
+// 🌌 Nouveau design inspiré de la maquette fournie : fond violet dégradé + champs sombres ajustés
+
+  Widget build(BuildContext context) {
+    final allFieldsFilled = _nomController.text.isNotEmpty &&
+        _prenomController.text.isNotEmpty &&
+        _ninController.text.isNotEmpty &&
+        _cnumberController.text.isNotEmpty &&
+        _birthDateController.text.isNotEmpty &&
+        _enddateController.text.isNotEmpty &&
+        _frontUploaded &&
+        _backUploaded &&
+        _selfiePath != null &&
+        _comparisonResult.isNotEmpty;
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.only(top: 50, bottom: 30),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF155970), Color(0xFF2A0A3D)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.only(
+                bottomLeft: Radius.circular(40),
+                bottomRight: Radius.circular(40),
               ),
             ),
-            if (isProcessing) LinearProgressIndicator(),
-            ...extractedInfo,
+            child: Column(
+              children: [
+                Image.asset('assets/images/logo.png', height: 80),
+                const SizedBox(height: 12),
+                const Text(
+                  'Verify your identity with',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Driving License',
+                  style: TextStyle(
+                    fontSize: 23,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Poppins',
+                    color: Colors.white,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(40),
+                  topRight: Radius.circular(40),
+                ),
+              ),
+              child: SingleChildScrollView(
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildTextField(_nomController, 'Family name',
+                          required: true),
+                      _buildTextField(_prenomController, 'Given name',
+                          required: true),
+                      _buildTextField(
+                        _ninController,
+                        'Identity number',
+                        required: true,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          LengthLimitingTextInputFormatter(18),
+                          FilteringTextInputFormatter.digitsOnly
+                        ],
+                      ),
+                      _buildTextField(
+                        _cnumberController,
+                        'Card number',
+                        required: true,
+                        inputFormatters: [LengthLimitingTextInputFormatter(9)],
+                      ),
+                      _buildTextField(
+                        _birthDateController,
+                        'Birthdate',
+                        required: true,
+                        onTap: () => _selectDate(context),
+                      ),
+                      _buildTextField(
+                        _enddateController,
+                        'Expiry Date',
+                        required: true,
+                        onTap: () => _selectDate(context),
+                      ),
+                      const SizedBox(height: 30),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _buildUploadCard(
+                              'Front Side',
+                              'assets/images/drivinglicense.png',
+                              true,
+                              _frontUploaded,
+                              _isFrontDataFilled),
+                          _buildUploadCard(
+                              'Back Side',
+                              'assets/images/backidcard.png',
+                              false,
+                              _backUploaded,
+                              _isBackDataFilled),
+                        ],
+                      ),
+                      const SizedBox(height: 30),
+                      Center(
+                        child: _buildUploadIcon(
+                          "Selfie",
+                          _selfiePath != null,
+                          _takeSelfie, // 👈 this should be your actual function
+                          Icons.camera_alt,
+                        ),
+                      ),
+                      const SizedBox(height: 30),
+                      if (_comparisonResult.isNotEmpty)
+                        Text(
+                          _comparisonResult,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: _comparisonResult
+                                    .toLowerCase()
+                                    .contains('faces match!')
+                                ? Colors.green
+                                : Colors.red,
+                          ),
+                        ),
+                      const SizedBox(height: 20),
+                      Center(
+                        child: ElevatedButton(
+                          onPressed: (!allFieldsFilled) ? null : _submitForm,
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 60, vertical: 16),
+                            backgroundColor: const Color(0xFF155970),
+                            disabledBackgroundColor: Colors.grey.shade400,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(30),
+                            ),
+                          ),
+                          child: const Text('Submit',
+                              style: TextStyle(color: Colors.white)),
+                        ),
+                      )
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTextField(
+    TextEditingController controller,
+    String label, {
+    VoidCallback? onTap,
+    TextInputType? keyboardType,
+    List<TextInputFormatter>? inputFormatters,
+    FormFieldValidator<String>? validator,
+    bool required = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          RichText(
+            text: TextSpan(
+              text: label,
+              style: TextStyle(color: Colors.black87, fontSize: 16),
+              children: required
+                  ? [TextSpan(text: ' *', style: TextStyle(color: Colors.red))]
+                  : [],
+            ),
+          ),
+          const SizedBox(height: 6),
+          TextFormField(
+            controller: controller,
+            readOnly: onTap != null,
+            onTap: onTap,
+            keyboardType: keyboardType,
+            inputFormatters: inputFormatters,
+            validator: validator ??
+                (value) =>
+                    value == null || value.isEmpty ? 'Required field' : null,
+            style: const TextStyle(fontSize: 16), // Texte saisi dans le champ
+            decoration: InputDecoration(
+              hintText: label,
+              hintStyle: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade600), // Taille placeholder
+              filled: true,
+              fillColor: Colors.grey.shade100,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUploadCard(String title, String imagePath, bool isFront,
+      bool uploaded, bool showRemove) {
+    return Column(
+      children: [
+        Text(
+          title,
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: 140,
+          height: 100,
+          decoration: BoxDecoration(
+            color: Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade300),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Image.asset(
+              imagePath,
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+                    children: [
+            GestureDetector(
+              onTap: () => _showImageSourceDialog(context, isFront: isFront),
+              child: Text('Upload',
+                  style: TextStyle(color: Colors.blue, fontSize: 14)),
+            ),
+            if (uploaded && showRemove) ...[
+              const SizedBox(width: 10),
+              GestureDetector(
+                onTap: () => _removeImage(isFront),
+                child: Text('Remove',
+                    style: TextStyle(color: Colors.red, fontSize: 14)),
+              ),
+            ]
           ],
         ),
-      ),
+      ],
     );
   }
 
-  Widget _buildComparison(String label, String extracted, String entered) {
-    final isMatch =
-        extracted.isNotEmpty && entered.isNotEmpty && extracted == entered;
-    return ListTile(
-      title: Text('$label: ${extracted.isEmpty ? 'Not found' : extracted}'),
-      trailing: Icon(
-        isMatch ? Icons.check_circle : Icons.error,
-        color: isMatch ? Colors.green : Colors.red,
+  Widget _buildUploadIcon(
+      String label, bool uploaded, VoidCallback onTap, IconData icon) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 28,
+            backgroundColor: uploaded ? Colors.green : const Color(0xFF155970),
+            child: Icon(
+              icon,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(label, style: const TextStyle(fontSize: 12)),
+        ],
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _nomController.dispose();
-    _prenomController.dispose();
-    _birthDateController.dispose();
-    _ninController.dispose();
-    _cnumberController.dispose();
-    _birthplaceController.dispose();
-    _releasedateController.dispose();
-    _enddateController.dispose();
-
-    super.dispose();
   }
 }
