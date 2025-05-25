@@ -361,79 +361,62 @@ void _extractNIN() {
 }
 
 
-  void _extractFamilyName() {
-    String? familyname;
+void _extractFamilyName() {
+  String? familyname;
 
-    // Pattern 1: Direct keyword match
-    const keywords = ['nom'];
-
-    // Search for keyword patterns
-    for (final keyword in keywords) {
-      final index = _ocrText.indexOf(keyword);
-      if (index != -1) {
-        final textAfter = _ocrText.substring(index + keyword.length);
-        final match = RegExp(r'[A-Za-z]+').firstMatch(textAfter);
-        if (match != null) {
-          familyname = match.group(0);
-          break;
-        }
+  final startIndex = _ocrText.toLowerCase().indexOf('p<dza');
+  if (startIndex != -1) {
+    final fromIndex = startIndex + 5; // skip "p<dza"
+    final endIndex = _ocrText.indexOf('<<', fromIndex);
+    if (endIndex != -1 && endIndex > fromIndex) {
+      final rawName = _ocrText.substring(fromIndex, endIndex);
+      // Remove any non-letter characters (like <, spaces, etc.)
+      final cleaned = rawName.replaceAll(RegExp(r'[^A-Za-z]'), '');
+      if (cleaned.isNotEmpty) {
+        familyname = cleaned.toUpperCase();
       }
-    }
-
-    // Pattern 2: Standalone 18-digit number (fallback)
-    if (familyname == null) {
-      final matches = RegExp(r'[A-Za-z]+').allMatches(_ocrText);
-      if (matches.isNotEmpty) {
-        familyname = matches.first.group(0);
-      }
-    }
-
-    setState(() => _extractedNom = familyname ?? '');
-
-    if (_extractedNom.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Nom not found. Try better quality image')),
-      );
-      debugPrint('OCR Text:\n$_ocrText'); // For debugging
     }
   }
+
+  setState(() => _extractedNom = familyname ?? '');
+
+  if (_extractedNom.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Nom not found. Try better quality image')),
+    );
+    debugPrint('OCR Text:\n$_ocrText');
+  }
+}
+
 
   void _extractGivenName() {
-    String? givenname;
+  String? givenname;
 
-    // Pattern 1: Direct keyword match
-    const keywords = ['<<'];
+  // Find the last name section, usually like "surname<<given<name<<<<<"
+  final match = RegExp(r'<<([A-Za-z<]+)<<*').firstMatch(_ocrText);
 
-    // Search for keyword patterns
-    for (final keyword in keywords) {
-      final index = _ocrText.indexOf(keyword);
-      if (index != -1) {
-        final textAfter = _ocrText.substring(index + keyword.length);
-        final match = RegExp(r'[A-Za-z]+').firstMatch(textAfter);
-        if (match != null) {
-          givenname = match.group(0);
-          break;
-        }
-      }
-    }
+  if (match != null) {
+    final rawGiven = match.group(1)!;
 
-    // Pattern 2: Standalone 18-digit number (fallback)
-    if (givenname == null) {
-      final matches = RegExp(r'[A-Za-z]+').allMatches(_ocrText);
-      if (matches.isNotEmpty) {
-        givenname = matches.first.group(0);
-      }
-    }
-
-    setState(() => _extractedPrenom = givenname ?? '');
-
-    if (_extractedPrenom.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Prenom not found. Try better quality image')),
-      );
-      debugPrint('OCR Text:\n$_ocrText'); // For debugging
-    }
+    // Clean it up: replace '<' with space, remove non-letters, trim spaces
+    givenname = rawGiven
+        .replaceAll('<', ' ')
+        .replaceAll(RegExp(r'[^A-Za-z\s]'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim()
+        .toUpperCase();
   }
+
+  setState(() => _extractedPrenom = givenname ?? '');
+
+  if (_extractedPrenom.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Given name not found. Try better quality image')),
+    );
+    debugPrint('OCR Text:\n$_ocrText');
+  }
+}
+
 
   void _extractBirthdate() {
     String? birthdate;
@@ -528,43 +511,29 @@ void _extractNIN() {
   // return match != null ? match.group(1)! : '';
 //  }
 
-  void _extractCardnumber() {
-    String? cnumber;
+void _extractCardnumber() {
+  String? cnumber;
 
-    // Pattern 1: Direct keyword match
-    const keywords = ['بطاقة التعريف الوطنية'];
+  // Look for 9 digits followed by optional digit and DZA (with or without spaces)
+  final match = RegExp(r'(\d{9})\d?\s*d\s*z\s*a', caseSensitive: false)
+      .firstMatch(_ocrText);
 
-    // Search for keyword patterns
-    for (final keyword in keywords) {
-      final index = _ocrText.indexOf(keyword);
-      if (index != -1) {
-        final textAfter = _ocrText.substring(index + keyword.length);
-        final match = RegExp(r'\d{9}').firstMatch(textAfter);
-        if (match != null) {
-          cnumber = match.group(0);
-          break;
-        }
-      }
-    }
-
-    // Pattern 2: Standalone 9-character alphanumeric (fallback)
-    if (cnumber == null) {
-      final matches = RegExp(r'\b\d{9}\b').allMatches(_ocrText);
-      if (matches.isNotEmpty) {
-        cnumber = matches.first.group(0);
-      }
-    }
-
-    setState(() => _extractedCardnumber = cnumber ?? '');
-
-    if (_extractedCardnumber.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text('Card number not found. Try better quality image')),
-      );
-      debugPrint('OCR Text:\n$_ocrText'); // For debugging
-    }
+  if (match != null) {
+    cnumber = match.group(1); // Extract only the first 9 digits
   }
+
+  setState(() => _extractedCardnumber = cnumber ?? '');
+
+  if (_extractedCardnumber.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Card number not found. Try better quality image'),
+      ),
+    );
+    debugPrint('OCR Text:\n$_ocrText'); // For debugging
+  }
+}
+
 
   String _normalizeText(String text) {
     // Clean text for better processing

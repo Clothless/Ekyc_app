@@ -429,12 +429,20 @@ class _DriverlicenseState extends State<Driverlicense> {
     return '';
   }
 
-  String _extractGivenName(String text) {
-    // Extract the part after the first '<<' (family name) and before the next '<<' (given name)
-    final givenMatch = RegExp(r'<<([a-zA-Z]+)<<').firstMatch(text);
-    // Clean any non-alphabetical characters if needed
-    return givenMatch?.group(1)?.replaceAll(RegExp(r'[^a-zA-Z]'), '') ?? '';
+String _extractGivenName(String text) {
+  // Match given names after the first '<<' and before the next '<<'
+  final match = RegExp(r'<<([A-Z<]+)<<*$', caseSensitive: false).firstMatch(text);
+  if (match != null) {
+    return match.group(1)!
+        .replaceAll('<', ' ')
+        .replaceAll(RegExp(r'[^A-Z\s]', caseSensitive: false), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim()
+        .toUpperCase();
   }
+  return '';
+}
+
 
   void _extractBirthdate() {
     String? birthdate;
@@ -561,6 +569,7 @@ class _DriverlicenseState extends State<Driverlicense> {
     }
 
     setState(() => _extractedCardnumber = cnumber ?? '');
+    _frontCardNumber = cnumber;
 
     if (_extractedCardnumber.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(

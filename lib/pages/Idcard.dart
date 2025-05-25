@@ -813,7 +813,7 @@ class _IdcardState extends State<Idcard> {
     _frontCardNumber != _backCardNumber) {
   _showCustomDialog(
           title: "Error Detected",
-          message: "Front and Back are not from the same card",
+          message: "Front and Back are not from the same",
           icon: Icons.error,
           iconColor: Colors.red,
         );
