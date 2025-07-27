@@ -1,5 +1,6 @@
 // 🎨 Version améliorée avec fond et transition comme l'écran ID Card
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import 'pages/Idcard.dart';
 import 'pages/DriverLicense.dart';
 import 'pages/Passport.dart';
 import 'package:lottie/lottie.dart';
+import 'package:http/http.dart' as http;
 
 void main() {
   runApp(const MyApp());
@@ -18,14 +20,15 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'eKYC Form',
       debugShowCheckedModeBanner: false,
-      home: OnboardingPage1(),
-            initialRoute: '/',
+      initialRoute: '/',
       routes: {
+        '/': (context) => const WelcomePage(),
         '/idcard': (context) => const Idcard(documentType: "ID Card"),
         '/driverlicense': (context) => const Driverlicense(documentType: "Driving License"),
         '/passport': (context) => const Passport(documentType: "Passport"),
+        '/nfc_biometric': (context) => const Idcard(documentType: "Biometric ID Card (NFC)"),
+        '/nfc_passport': (context) => const Passport(documentType: "Passport (NFC)"),
       },
     );
   }
@@ -234,205 +237,81 @@ class _SplashScreenAfterOnboardingState extends State<SplashScreenAfterOnboardin
 }
 
 
-class WelcomePage extends StatefulWidget {
+class WelcomePage extends StatelessWidget {
   const WelcomePage({super.key});
 
-  @override
-  State<WelcomePage> createState() => _WelcomePageState();
-}
-
-class _WelcomePageState extends State<WelcomePage>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _fadeController;
-  late Animation<double> _fadeAnimation;
-  String? selectedOption;
-
-  @override
-  void initState() {
-    super.initState();
-    _fadeController =
-        AnimationController(vsync: this, duration: const Duration(seconds: 2));
-    _fadeAnimation =
-        CurvedAnimation(parent: _fadeController, curve: Curves.easeInOut);
-    _fadeController.forward();
-  }
-
-  @override
-  void dispose() {
-    _fadeController.dispose();
-    super.dispose();
-  }
-
-  void navigateToNextPage() {
+  void navigateToNextPage(BuildContext context, String selectedOption) {
     if (selectedOption == "ID Card") {
       Navigator.pushNamed(context, '/idcard');
     } else if (selectedOption == "Driving License") {
       Navigator.pushNamed(context, '/driverlicense');
     } else if (selectedOption == "Passport") {
       Navigator.pushNamed(context, '/passport');
+    } else if (selectedOption == "Biometric ID Card") {
+      Navigator.pushNamed(context, '/nfc_biometric');
+    } else if (selectedOption == "Passport (NFC)") {
+      Navigator.pushNamed(context, '/nfc_passport');
     }
   }
 
-  Widget documentCard(String label, IconData icon) {
-    final isSelected = selectedOption == label;
+  Widget documentCard(BuildContext context, String title, IconData icon) {
     return GestureDetector(
-      onTap: () {
-        setState(() {
-          selectedOption = label;
-        });
-      },
-      child: AnimatedContainer(
-        duration: Duration(milliseconds: 300),
-        margin: const EdgeInsets.symmetric(vertical: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(isSelected ? 0.25 : 0.1),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-              color: isSelected ? Colors.white : Colors.white30, width: 1.5),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: Colors.white.withOpacity(0.3),
-                    blurRadius: 12,
-                    spreadRadius: 1,
-                  )
-                ]
-              : [],
-        ),
-        transform: isSelected
-            ? (Matrix4.identity()..scale(1.03))
-            : Matrix4.identity(),
-        child: Row(
-          children: [
-            Icon(icon, size: 26, color: Colors.white),
-            SizedBox(width: 14),
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.white,
-                  fontWeight:
-                      isSelected ? FontWeight.bold : FontWeight.normal,
-                ),
+      onTap: () => navigateToNextPage(context, title),
+      child: Card(
+        color: Colors.blueGrey.shade900,
+        elevation: 4,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            children: [
+              Icon(icon, size: 40, color: Colors.white),
+              const SizedBox(width: 20),
+              Text(
+                title,
+                style: const TextStyle(fontSize: 18, color: Colors.white),
               ),
-            ),
-            if (isSelected)
-              Icon(Icons.check_circle, color: Colors.white, size: 22),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-@override
+  @override
   Widget build(BuildContext context) {
+
     return Scaffold(
-      body: Stack(
-        children: [
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFF155970), Color(0xFF2A0A3D)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
+      backgroundColor: Colors.grey.shade900,
+      appBar: AppBar(
+        title: const Text('eKYC App'),
+        backgroundColor: Colors.blueGrey.shade700,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.only(bottom: 40, right: 20, left: 20),
+        child: Center(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              documentCard(context, "ID Card", Icons.credit_card),
+              // documentCard(context, "Driving License", Icons.directions_car),
+              documentCard(context, "Passport", Icons.travel_explore),
+              // ExpansionTile(
+              //   title: const Text(
+              //     "NFC Chip",
+              //     style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              //   ),
+              //   iconColor: Colors.white,
+              //   collapsedIconColor: Colors.white,
+              //   childrenPadding: const EdgeInsets.only(left: 16),
+              //   children: [
+              //     documentCard(context, "Biometric ID Card", Icons.shield_moon_rounded),
+              //     documentCard(context, "Passport (NFC)", Icons.shield_moon_rounded),
+              //   ],
+              // ),
+            ],
           ),
-          Positioned(
-            top: -100,
-            left: -100,
-            child: Container(
-              width: 250,
-              height: 250,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.purple.withOpacity(0.3),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: -80,
-            right: -80,
-            child: Container(
-              width: 200,
-              height: 200,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.blue.withOpacity(0.2),
-              ),
-            ),
-          ),
-          Center(
-            child: FadeTransition(
-              opacity: _fadeAnimation,
-              child: Padding(
-                padding: const EdgeInsets.all(25.0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Image.asset('assets/images/logo.png', height: 160),
-                    const SizedBox(height: 20),
-                    const Text(
-                      'Choose your document',
-                      style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Poppins',
-                          color: Colors.white),
-                    ),
-                    const SizedBox(height: 20),
-                    documentCard("ID Card", Icons.credit_card),
-                    documentCard("Driving License", Icons.directions_car),
-                    documentCard("Passport", Icons.travel_explore),
-                    const Spacer(),
-                    GestureDetector(
-                      onTap: selectedOption != null ? navigateToNextPage : null,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(30),
-                          gradient: selectedOption != null
-                              ? const LinearGradient(
-                                  colors: [Color(0xFF7A4FF3), Color(0xFF12002C)],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                )
-                              : LinearGradient(
-                                  colors: [Colors.grey.shade400, Colors.grey.shade300],
-                                ),
-                          boxShadow: selectedOption != null
-                              ? [
-                                  const BoxShadow(
-                                    color: Colors.black26,
-                                    blurRadius: 10,
-                                    offset: Offset(0, 4),
-                                  )
-                                ]
-                              : [],
-                        ),
-                        child: const Center(
-                          child: Text(
-                            "Continue",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 17,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 1.1,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

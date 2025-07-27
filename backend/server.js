@@ -7,13 +7,13 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
-const baseUrl = 'http://localhost:5000';
+const baseUrl = 'http://105.96.12.227:5000';
 
 const pool = new Pool({
   user: 'postgres',
   host: 'localhost',
   database: 'ekyc',
-  password: 'adel2003',
+  password: '12345678',
   port: 5432,
 });
 
@@ -43,6 +43,7 @@ app.post('/save-id-card', upload.fields([
   { name: 'selfie', maxCount: 1 },
 ]), async (req, res) => {
   try {
+    console.log('📥 Request Body:', req.body);
     const { identity_number, card_number, expiryDate, birthdate, family_name, given_name, document_type } = req.body;
 
     const formatDate = (dateString) => {
@@ -55,9 +56,9 @@ app.post('/save-id-card', upload.fields([
     const formattedBirthdate = formatDate(birthdate);
     const formattedExpiryDate = formatDate(expiryDate);
 
-    const frontImageUrl = req.files['idCardFront'] ? `${baseUrl}/uploads/${req.files['idCardFront'][0].filename}` : null;
-    const idCardFaceUrl = req.files['idCardFace'] ? `${baseUrl}/uploads/${req.files['idCardFace'][0].filename}` : null;
-    const selfieUrl = req.files['selfie'] ? `${baseUrl}/uploads/${req.files['selfie'][0].filename}` : null;
+    const frontImageUrl = req.files['idCardFront'] ? `./uploads/${req.files['idCardFront'][0].filename}` : null;
+    const idCardFaceUrl = req.files['idCardFace'] ? `./uploads/${req.files['idCardFace'][0].filename}` : null;
+    const selfieUrl = req.files['selfie'] ? `./uploads/${req.files['selfie'][0].filename}` : null;
 
     const checkResult = await pool.query(
       `SELECT * FROM id_cards WHERE identity_number = $1 AND document_type = $2`,
@@ -69,6 +70,9 @@ app.post('/save-id-card', upload.fields([
         success: false,
         message: `The identity number already exists for document type: ${document_type}`,
       });
+    }
+    else{
+        console.log('✅ No existing record found for this identity number and document type.');
     }
 
     const result = await pool.query(
@@ -103,5 +107,5 @@ app.post('/save-id-card', upload.fields([
 });
 
 app.listen(5000, () => {
-  console.log('🚀 Server running on http://localhost:5000');
+  console.log('🚀 Server running on http://105.96.12.227:5000');
 });

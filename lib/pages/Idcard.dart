@@ -1,10 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:camera/camera.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 
 import 'package:google_ml_kit/google_ml_kit.dart';
@@ -13,17 +13,19 @@ import 'package:flutter/material.dart';
 
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:http/http.dart' as http;
-import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
-import 'package:lottie/lottie.dart';
+import 'package:ekyc/ekyc.dart';
 
 import 'package:path_provider/path_provider.dart';
 
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
+import 'result_page.dart';
+
 class Idcard extends StatefulWidget {
   final String documentType;
+
   const Idcard({Key? key, required this.documentType}) : super(key: key);
 
   @override
@@ -75,7 +77,25 @@ class _IdcardState extends State<Idcard> {
   File? _extractedPhoto;
   Rect? _photoArea;
   List<File> _selfieImages = [];
+  Map<String, dynamic>? _result;
+  bool _scanning = false;
+  Timer? _timeoutTimer;
+  bool _timeout = false;
   final ImagePicker _picker = ImagePicker();
+
+  final List<String> _readingSteps = [
+    'Reading COM (Card Security Information)...',
+    'Reading SOD (Security Object Document)...',
+    'Reading DG1 (Personal Details)...',
+    'Reading DG2 (Face Image)...',
+    'Reading DG7 (Signature Image)...',
+    'Reading DG11 (Additional Details)...',
+    'Reading DG12 (Document Details)...',
+    'Reading DG15 (Public Key Info)...',
+  ];
+  int _currentStep = 0;
+  final int _totalSteps = 8;
+
 
   final Map<String, String> _formData = {
     'family_name': '',
@@ -86,13 +106,145 @@ class _IdcardState extends State<Idcard> {
     'expiryDate': '',
     'document_type': '',
   };
+
+  final Map<String, String> mrzData = {
+    'docNumber': '',
+    'dob': '',
+    'doe': '',
+  };
+
   @override
   void initState() {
     super.initState();
     _formData['document_type'] = widget.documentType;
+    Ekyc.setOnPassportReadListener((passportData) async{
+      _timeoutTimer?.cancel();
+      await savePassportDigitalImageToResultPage(passportData);
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => ResultPage(
+            result: passportData,
+          ),
+        ),
+      );
+      setState(() {
+        _result = passportData;
+        _scanning = false;
+        _timeout = false;
+      });
+    });
+  }
+
+  // Base64 image to file function
+  Future<File> base64ToFile(String base64String) async {
+    final bytes = base64Decode(base64String);
+    final dir = await getTemporaryDirectory(); // or getApplicationDocumentsDirectory()
+    final file = File('${dir.path}/${DateTime.now().millisecondsSinceEpoch}.jpg');
+    await file.writeAsBytes(bytes);
+    return file;
+  }
+
+  void _simulateReadingSteps() async {
+    for (int i = 0; i < _readingSteps.length; i++) {
+      await Future.delayed(Duration(milliseconds: 700)); // simulate delay per step
+      if (!_scanning) break; // exit early if user cancels
+      setState(() {
+        _currentStep = i;
+      });
+    }
+  }
+
+
+  Future<void> _startScan() async {
+    setState(() {
+      _result = null;
+      _scanning = true;
+      _timeout = false;
+    });
+
+    _timeoutTimer = Timer(const Duration(seconds: 30), () {
+      setState(() {
+        _scanning = false;
+        _timeout = true;
+      });
+    });
+
+    await _startKyc();
+  }
+
+  Future<void> _startKyc() async {
+    try {
+      debugPrint('eKYC: Starting flow');
+      final result = await Ekyc().startKycFlow(context: context, mrzData: {
+        "docNumber": mrzData['docNumber']!,
+        "dob": mrzData['dob']!,
+        "doe": mrzData['doe']!,
+      });
+      debugPrint('eKYC: Flow returned: $result');
+    } catch (e) {
+      debugPrint('eKYC: Error: $e');
+      if (!mounted) return;
+    }
+  }
+
+  Future<String> convertToJpeg(String image) async {
+    var comparisonRequest = http.MultipartRequest(
+      'POST',
+      Uri.parse('http://105.96.12.227:8000/convert'), // FastAPI endpoint
+    );
+    comparisonRequest.fields.addAll({
+      'jp2_base64': image,
+    });
+    var comparisonResponse = await comparisonRequest.send();
+    final comparisonRespStr = await comparisonResponse.stream.bytesToString();
+    final comparisonResponseData = jsonDecode(comparisonRespStr);
+
+    if (comparisonResponse.statusCode != 200) {
+      return comparisonResponseData;
+    }
+    return "";
+  }
+
+  Widget _buildPhoto() {
+    final isJpeg = _result?['dg2']["isJpeg"];
+
+    if (isJpeg) {
+      convertToJpeg(_result?['dg2']["photo"]).then((jpegBase64) {
+        ;
+        if (jpegBase64.isNotEmpty) {
+          return Column(
+            children: [
+              Container(
+                width: 160,
+                height: 200,
+                // decoration: BoxDecoration(
+                //   shape: BoxShape.circle,
+                //   border: Border.all(color: Colors.grey, width: 2),
+                // ),
+                child: Image.memory(base64Decode(jpegBase64)),
+              ),
+            ],
+          );
+        }
+      });
+    }
+    return Column(
+      children: [
+        Container(
+          width: 160,
+          height: 200,
+          // decoration: BoxDecoration(
+          //   shape: BoxShape.circle,
+          //   border: Border.all(color: Colors.grey, width: 2),
+          // ),
+          child: Image.memory(base64Decode(_result?['dg2']["photo"])),
+        ),
+      ],
+    );
   }
 
   List<CameraDescription>? _cameras;
+
   Future<void> _initializeCamera() async {
     _cameras = await availableCameras();
   }
@@ -210,7 +362,22 @@ class _IdcardState extends State<Idcard> {
     });
 
     await _processImage(File(pickedFile.path), isFront: isFront);
-    await uploadAndCompareFaces();
+    // await uploadAndCompareFaces();
+  }
+
+  Future<void> savePassportDigitalImageToResultPage(
+      Map<String, dynamic> data) async {
+    final isJpeg = data['dg2']["isJpeg"];
+    final base64Photo = data['dg2']["photo"];
+
+    if (!isJpeg) {
+      final base64String = await convertToJpeg(base64Photo);
+      final image = await base64ToFile(base64String);
+      ResultPage.imagePath = image.path;
+    }else{
+      final image = await base64ToFile(base64Photo);
+      ResultPage.imagePath = image.path;
+    }
   }
 
   Future<void> _processImage(File image, {required bool isFront}) async {
@@ -418,6 +585,9 @@ class _IdcardState extends State<Idcard> {
       if (rawDigits != null && rawDigits.length >= 6) {
         final digits =
             rawDigits.substring(0, 6); // Take only the first 6 digits
+        setState(() {
+          mrzData['dob'] = digits;
+        });
         birthdate = _formatDate(digits);
         debugPrint('Extracted Birthdate: $birthdate');
       }
@@ -451,6 +621,9 @@ class _IdcardState extends State<Idcard> {
       final rawDigits = match.group(1)?.replaceAll(RegExp(r'\s+'), '');
       if (rawDigits != null && rawDigits.length >= 6) {
         final digits = rawDigits.substring(0, 6); // First 6 digits
+        setState(() {
+          mrzData['doe'] = digits;
+        });
         endDate = _formatDate(digits);
         debugPrint('Extracted Expiry Date: $endDate');
       }
@@ -468,7 +641,7 @@ class _IdcardState extends State<Idcard> {
     }
   }
 
-/** Converts YYMMDD to DD.MM.YYYY */
+  /** Converts YYMMDD to DD.MM.YYYY */
   String _formatDate(String yyMMdd) {
     int year = int.parse(yyMMdd.substring(0, 2));
     String month = yyMMdd.substring(2, 4);
@@ -538,6 +711,9 @@ class _IdcardState extends State<Idcard> {
     }
 
     setState(() => _extractedCardnumber = cnumber ?? '');
+    setState(() {
+      mrzData['docNumber'] = _extractedCardnumber;
+    });
     _frontCardNumber = cnumber;
 
     if (_extractedCardnumber.isEmpty) {
@@ -601,9 +777,36 @@ class _IdcardState extends State<Idcard> {
       final croppedFace = await _cropFace(image, face);
       if (croppedFace != null) {
         setState(() => _selfiePath = croppedFace.path);
+        ResultPage.selfiePath = croppedFace.path;
       }
+    }else{
+      return;
     }
-    await uploadAndCompareFaces();
+
+    final nfcStatus = await Ekyc.checkNfc();
+    if (nfcStatus['supported'] == false || nfcStatus['enabled'] == false) {
+      if (!context.mounted) return null;
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('NFC Not Enabled'),
+          content: Text(nfcStatus['error'] != null
+              ? 'NFC is not enabled: ${nfcStatus['error']}'
+              : 'NFC is not enabled. Please enable NFC in your device settings and try again.'),
+          actions: [
+            TextButton(
+                onPressed: () {
+                  if (!context.mounted) return;
+                  Navigator.of(context).pop();
+                },
+                child: const Text('OK'))
+          ],
+        ),
+      );
+      return null;
+    }
+    final result = await _startScan();
+    // await uploadAndCompareFaces();
   }
 
   Future<Face?> _detectFace(File imageFile) async {
@@ -629,15 +832,15 @@ class _IdcardState extends State<Idcard> {
       return null;
     }
 
-    if (faces.length != 1) {
-      _showCustomDialog(
-        title: "Multiple faces detected",
-        message: "Make sure you are alone in the frame.",
-        icon: Icons.people_outline,
-        iconColor: Colors.orange,
-      );
-      return null;
-    }
+    // if (faces.length != 1) {
+    //   _showCustomDialog(
+    //     title: "Multiple faces detected",
+    //     message: "Make sure you are alone in the frame.",
+    //     icon: Icons.people_outline,
+    //     iconColor: Colors.orange,
+    //   );
+    //   return null;
+    // }
 
     Face face = faces.first;
 
@@ -746,51 +949,53 @@ class _IdcardState extends State<Idcard> {
     }
   }
 
-  Future<void> uploadAndCompareFaces() async {
-    try {
-      if (_frontIdPath == null || _selfiePath == null) {
-        print("Please upload both images.");
-        return;
-      }
-
-      // Create a multipart request for the face comparison
-      var comparisonRequest = http.MultipartRequest(
-        'POST',
-        Uri.parse('http://192.168.1.7:8000/compare-faces'), // FastAPI endpoint
-      );
-
-      // Add files for comparison
-      comparisonRequest.files.add(await http.MultipartFile.fromPath(
-          'idCardFace', _extractedPhoto!.path));
-      comparisonRequest.files
-          .add(await http.MultipartFile.fromPath('selfie', _selfiePath!));
-
-      // Send the request
-      var comparisonResponse = await comparisonRequest.send();
-      final comparisonRespStr = await comparisonResponse.stream.bytesToString();
-      final comparisonResponseData = jsonDecode(comparisonRespStr);
-
-      if (comparisonResponse.statusCode != 200) {
-        setState(() {
-          _comparisonResult =
-              'Erreur: ${comparisonResponseData['error'] ?? 'Unknown error'}';
-        });
-        return;
-      }
-
-      final String message = comparisonResponseData['message'] ?? 'No message';
-      final bool isVerified = comparisonResponseData['verified'] ?? false;
-
-      setState(() {
-        _comparisonResult = message;
-      });
-    } catch (e) {
-      print('Error during face comparison: $e');
-      setState(() {
-        _comparisonResult = 'Erreur lors de la comparaison: ${e.toString()}';
-      });
-    }
-  }
+  // Future<void> uploadAndCompareFaces() async {
+  //   try {
+  //     if (_frontIdPath == null || _selfiePath == null) {
+  //       print("Please upload both images.");
+  //       return;
+  //     }
+  //
+  //     // Create a multipart request for the face comparison
+  //     var comparisonRequest = http.MultipartRequest(
+  //       'POST',
+  //       Uri.parse(
+  //           'http://105.96.12.227:8000/compare-faces'), // FastAPI endpoint
+  //     );
+  //
+  //     // Add files for comparison
+  //     comparisonRequest.files.add(await http.MultipartFile.fromPath(
+  //         'idCardFace', _extractedPhoto!.path));
+  //     comparisonRequest.files
+  //         .add(await http.MultipartFile.fromPath('selfie', _selfiePath!));
+  //
+  //     // Send the request
+  //     var comparisonResponse =
+  //         await comparisonRequest.send().timeout(Duration(seconds: 120));
+  //     final comparisonRespStr = await comparisonResponse.stream.bytesToString();
+  //     final comparisonResponseData = jsonDecode(comparisonRespStr);
+  //
+  //     if (comparisonResponse.statusCode != 200) {
+  //       setState(() {
+  //         _comparisonResult =
+  //             'Erreur: ${comparisonResponseData['error'] ?? 'Unknown error'}';
+  //       });
+  //       return;
+  //     }
+  //
+  //     final String message = comparisonResponseData['message'] ?? 'No message';
+  //     final bool isVerified = comparisonResponseData['verified'] ?? false;
+  //
+  //     setState(() {
+  //       _comparisonResult = message;
+  //     });
+  //   } catch (e) {
+  //     print('Error during face comparison: $e');
+  //     setState(() {
+  //       _comparisonResult = 'Erreur lors de la comparaison: ${e.toString()}';
+  //     });
+  //   }
+  // }
 
   // Method for submitting the form
   Future<void> _submitForm() async {
@@ -809,34 +1014,34 @@ class _IdcardState extends State<Idcard> {
     }
 
     if (_frontCardNumber != null &&
-    _backCardNumber != null &&
-    _frontCardNumber != _backCardNumber) {
-  _showCustomDialog(
-          title: "Error Detected",
-          message: "Front and Back are not from the same",
-          icon: Icons.error,
-          iconColor: Colors.red,
-        );
-  return;
-}
-
-    try {
-      final expiry = DateFormat('dd.MM.yyyy').parse(_extractedendDate);
-      if (expiry.isBefore(DateTime.now())) {
-        _showCustomSnackbar('Card expired. Please use a valid card.');
-        return;
-      }
-    } catch (e) {
-      _showCustomSnackbar("Invalid Expiry Date");
+        _backCardNumber != null &&
+        _frontCardNumber != _backCardNumber) {
+      _showCustomDialog(
+        title: "Error Detected",
+        message: "Front and Back are not from the same",
+        icon: Icons.error,
+        iconColor: Colors.red,
+      );
       return;
     }
+
+    // try {
+    //   final expiry = DateFormat('dd.MM.yyyy').parse(_extractedendDate);
+    //   if (expiry.isBefore(DateTime.now())) {
+    //     _showCustomSnackbar('Card expired. Please use a valid card.');
+    //     return;
+    //   }
+    // } catch (e) {
+    //   _showCustomSnackbar("Invalid Expiry Date");
+    //   return;
+    // }
 
     setState(() => _isProcessing = true);
 
     try {
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('http://192.168.1.7:5000/save-id-card'),
+        Uri.parse('http://105.96.12.227:5000/save-id-card'),
       );
 
       request.fields.addAll({
@@ -1000,160 +1205,197 @@ class _IdcardState extends State<Idcard> {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Column(
+      body: Stack(
         children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.only(top: 50, bottom: 30),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFF155970), Color(0xFF2A0A3D)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.only(
-                bottomLeft: Radius.circular(40),
-                bottomRight: Radius.circular(40),
-              ),
-            ),
-            child: Column(
-              children: [
-                Image.asset('assets/images/logo.png', height: 80),
-                const SizedBox(height: 12),
-                const Text(
-                  'Verify your identity with',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w400,
+          Column(
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.only(top: 50, bottom: 30),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF155970), Color(0xFF2A0A3D)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.only(
+                    bottomLeft: Radius.circular(40),
+                    bottomRight: Radius.circular(40),
                   ),
                 ),
-                const SizedBox(height: 4),
-                const Text(
-                  'ID Card',
-                  style: TextStyle(
-                    fontSize: 23,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'Poppins',
-                    color: Colors.white,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(40),
-                  topRight: Radius.circular(40),
+                child: Column(
+                  children: [
+                    Image.asset('assets/images/logo.png', height: 80),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Verify your identity with',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'ID Card',
+                      style: TextStyle(
+                        fontSize: 23,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Poppins',
+                        color: Colors.white,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              child: SingleChildScrollView(
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildTextField(_nomController, 'Family name',
-                          required: true),
-                      _buildTextField(_prenomController, 'Given name',
-                          required: true),
-                      _buildTextField(
-                        _ninController,
-                        'Identity number',
-                        required: true,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          LengthLimitingTextInputFormatter(18),
-                          FilteringTextInputFormatter.digitsOnly
-                        ],
-                      ),
-                      _buildTextField(
-                        _cnumberController,
-                        'Card number',
-                        required: true,
-                        inputFormatters: [LengthLimitingTextInputFormatter(9)],
-                      ),
-                      _buildTextField(
-                        _birthDateController,
-                        'Birthdate',
-                        required: true,
-                        onTap: () => _selectDate(context),
-                      ),
-                      _buildTextField(
-                        _enddateController,
-                        'Expiry Date',
-                        required: true,
-                        onTap: () => _selectDate(context),
-                      ),
-                      const SizedBox(height: 30),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(40),
+                      topRight: Radius.circular(40),
+                    ),
+                  ),
+                  child: SingleChildScrollView(
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _buildUploadCard(
-                              'Front Side',
-                              'assets/images/idcard.png',
-                              true,
-                              _frontUploaded,
-                              _isFrontDataFilled),
-                          _buildUploadCard(
-                              'Back Side',
-                              'assets/images/backidcard.png',
-                              false,
-                              _backUploaded,
-                              _isBackDataFilled),
-                        ],
-                      ),
-                      const SizedBox(height: 30),
-                      Center(
-                        child: _buildUploadIcon(
-                          "Selfie",
-                          _selfiePath != null,
-                          _takeSelfie, // 👈 this should be your actual function
-                          Icons.camera_alt,
-                        ),
-                      ),
-                      const SizedBox(height: 30),
-                      if (_comparisonResult.isNotEmpty)
-                        Text(
-                          _comparisonResult,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: _comparisonResult
-                                    .toLowerCase()
-                                    .contains('faces match!')
-                                ? Colors.green
-                                : Colors.red,
+                          // _buildTextField(_nomController, 'Family name',
+                          //     required: true),
+                          // _buildTextField(_prenomController, 'Given name',
+                          //     required: true),
+                          // _buildTextField(
+                          //   _ninController,
+                          //   'Identity number',
+                          //   required: true,
+                          //   keyboardType: TextInputType.number,
+                          //   inputFormatters: [
+                          //     LengthLimitingTextInputFormatter(18),
+                          //     FilteringTextInputFormatter.digitsOnly
+                          //   ],
+                          // ),
+                          // _buildTextField(
+                          //   _cnumberController,
+                          //   'Card number',
+                          //   required: true,
+                          //   inputFormatters: [
+                          //     LengthLimitingTextInputFormatter(9)
+                          //   ],
+                          // ),
+                          // _buildTextField(
+                          //   _birthDateController,
+                          //   'Birthdate',
+                          //   required: true,
+                          //   onTap: () => _selectDate(context),
+                          // ),
+                          // _buildTextField(
+                          //   _enddateController,
+                          //   'Expiry Date',
+                          //   required: true,
+                          //   onTap: () => _selectDate(context),
+                          // ),
+                          const SizedBox(height: 30),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              _buildUploadCard(
+                                  'Front Side',
+                                  'assets/images/idcard.png',
+                                  true,
+                                  _frontUploaded,
+                                  _isFrontDataFilled),
+                              _buildUploadCard(
+                                  'Back Side',
+                                  'assets/images/backidcard.png',
+                                  false,
+                                  _backUploaded,
+                                  _isBackDataFilled),
+                            ],
                           ),
-                        ),
-                      const SizedBox(height: 20),
-                      Center(
-                        child: ElevatedButton(
-                          onPressed: (!allFieldsFilled) ? null : _submitForm,
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 60, vertical: 16),
-                            backgroundColor: const Color(0xFF155970),
-                            disabledBackgroundColor: Colors.grey.shade400,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(30),
+                          const SizedBox(height: 30),
+                          Center(
+                            child: _buildUploadIcon(
+                              "Selfie",
+                              _selfiePath != null,
+                              _takeSelfie,
+                              // 👈 this should be your actual function
+                              Icons.camera_alt,
                             ),
                           ),
-                          child: const Text('Submit',
-                              style: TextStyle(color: Colors.white)),
-                        ),
-                      )
-                    ],
+                          const SizedBox(height: 30),
+                          if (_comparisonResult.isNotEmpty)
+                            Text(
+                              _comparisonResult,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: _comparisonResult
+                                        .toLowerCase()
+                                        .contains('faces match!')
+                                    ? Colors.green
+                                    : Colors.red,
+                              ),
+                            ),
+                          const SizedBox(height: 20),
+                          Center(
+                            child: ElevatedButton(
+                              onPressed:
+                                  (!allFieldsFilled) ? null : _submitForm,
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 60, vertical: 16),
+                                backgroundColor: const Color(0xFF155970),
+                                disabledBackgroundColor: Colors.grey.shade400,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(30),
+                                ),
+                              ),
+                              child: const Text('Submit',
+                                  style: TextStyle(color: Colors.white)),
+                            ),
+                          )
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
+            ],
           ),
+          _scanning
+              ? Container(
+            width: MediaQuery.of(context).size.width,
+            height: MediaQuery.of(context).size.height,
+            color: Colors.black.withOpacity(0.7),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(
+                    backgroundColor: Colors.grey[300],
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.blueAccent),
+                  ),
+                  const SizedBox(height: 20),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Text(
+                      "Please keep your ID Document close to the back of your phone while reading the NFC chip...",
+                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+              : Container(),
+
+
         ],
       ),
     );
@@ -1192,12 +1434,12 @@ class _IdcardState extends State<Idcard> {
             validator: validator ??
                 (value) =>
                     value == null || value.isEmpty ? 'Required field' : null,
-            style: const TextStyle(fontSize: 16), // Texte saisi dans le champ
+            style: const TextStyle(fontSize: 16),
+            // Texte saisi dans le champ
             decoration: InputDecoration(
               hintText: label,
-              hintStyle: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade600), // Taille placeholder
+              hintStyle: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              // Taille placeholder
               filled: true,
               fillColor: Colors.grey.shade100,
               border: OutlineInputBorder(

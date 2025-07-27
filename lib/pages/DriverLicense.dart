@@ -747,7 +747,7 @@ String _extractGivenName(String text) {
       // Create a multipart request for the face comparison
       var comparisonRequest = http.MultipartRequest(
         'POST',
-        Uri.parse('http://192.168.1.7:8000/compare-faces'), // FastAPI endpoint
+        Uri.parse('http://105.96.12.227:8000/compare-faces'), // FastAPI endpoint
       );
 
       // Add files for comparison
@@ -821,7 +821,7 @@ String _extractGivenName(String text) {
     try {
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('http://192.168.1.7:5000/save-id-card'),
+        Uri.parse('http://105.96.12.227:5000/save-id-card'),
       );
 
       request.fields.addAll({

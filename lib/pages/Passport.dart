@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:camera/camera.dart';
+import 'package:ekyc/ekyc.dart';
 import 'package:flutter/services.dart';
 
 import 'package:google_ml_kit/google_ml_kit.dart';
@@ -21,8 +23,11 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
+import 'result_page.dart';
+
 class Passport extends StatefulWidget {
   final String documentType;
+
   const Passport({super.key, required this.documentType});
 
   @override
@@ -73,6 +78,10 @@ class _PassportState extends State<Passport> {
   File? _extractedPhoto;
   Rect? _photoArea;
   final List<File> _selfieImages = [];
+  Map<String, dynamic>? _result;
+  bool _scanning = false;
+  Timer? _timeoutTimer;
+  bool _timeout = false;
   final ImagePicker _picker = ImagePicker();
 
   final Map<String, String> _formData = {
@@ -84,15 +93,93 @@ class _PassportState extends State<Passport> {
     'expiryDate': '',
     'document_type': '',
   };
+
+  final Map<String, String> mrzData = {
+    'docNumber': '',
+    'dob': '',
+    'doe': '',
+  };
+
   @override
   void initState() {
     super.initState();
     _formData['document_type'] = widget.documentType;
+    Ekyc.setOnPassportReadListener((passportData) async {
+      _timeoutTimer?.cancel();
+      await savePassportDigitalImageToResultPage(passportData);
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => ResultPage(
+            result: passportData,
+          ),
+        ),
+      );
+      setState(() {
+        _result = passportData;
+        _scanning = false;
+        _timeout = false;
+      });
+    });
+  }
+
+  // Base64 image to file function
+  Future<File> base64ToFile(String base64String) async {
+    final bytes = base64Decode(base64String);
+    final dir = await getTemporaryDirectory(); // or getApplicationDocumentsDirectory()
+    final file = File('${dir.path}/${DateTime.now().millisecondsSinceEpoch}.jpg');
+    await file.writeAsBytes(bytes);
+    return file;
+  }
+
+  Future<void> _startScan() async {
+    setState(() {
+      _result = null;
+      _scanning = true;
+      _timeout = false;
+    });
+
+    _timeoutTimer = Timer(const Duration(seconds: 30), () {
+      setState(() {
+        _scanning = false;
+        _timeout = true;
+      });
+    });
+
+    await _startKyc();
+  }
+
+  Future<void> _startKyc() async {
+    try {
+      debugPrint('eKYC: Starting flow');
+      final result = await Ekyc().startKycFlow(context: context, mrzData: {
+        "docNumber": mrzData['docNumber']!,
+        "dob": mrzData['dob']!,
+        "doe": mrzData['doe']!,
+      });
+      debugPrint('eKYC: Flow returned: $result');
+    } catch (e) {
+      debugPrint('eKYC: Error: $e');
+      if (!mounted) return;
+    }
+  }
+
+  Future<String> convertToJpeg(String image) async {
+    var response = await http.post(
+      Uri.parse('http://105.96.12.227:8000/convert'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'jp2_base64': image}),
+    );
+
+    if (response.statusCode == 200) {
+      return response.body.toString().split("\"")[1];
+    }
+    return "";
   }
 
   Future<void> _verificationFront(String text) async {
-    if (text.toLowerCase().contains('passeport')| text.toLowerCase().contains('passport')
-    | text.toLowerCase().contains('p<dza') ) {
+    if (text.toLowerCase().contains('passeport') |
+        text.toLowerCase().contains('passport') |
+        text.toLowerCase().contains('p<dza')) {
       setState(() {
         _isVerified = true;
       });
@@ -187,7 +274,22 @@ class _PassportState extends State<Passport> {
     });
 
     await _processImage(File(pickedFile.path), isFront: isFront);
-    await uploadAndCompareFaces();
+    // await uploadAndCompareFaces();
+  }
+
+  Future<void> savePassportDigitalImageToResultPage(
+      Map<String, dynamic> data) async {
+    final isJpeg = data['dg2']["isJpeg"];
+    final base64Photo = data['dg2']["photo"];
+
+    if (!isJpeg) {
+      final base64String = await convertToJpeg(base64Photo);
+      final image = await base64ToFile(base64String);
+      ResultPage.imagePath = image.path;
+    }else{
+      final image = await base64ToFile(base64Photo);
+      ResultPage.imagePath = image.path;
+    }
   }
 
   Future<void> _processImage(File image, {required bool isFront}) async {
@@ -210,16 +312,17 @@ class _PassportState extends State<Passport> {
           final croppedFile = await autoCropIdPhoto(image);
           if (croppedFile != null) {
             setState(() => _extractedPhoto = croppedFile);
+            ResultPage.imagePath = croppedFile.path;
           }
-        }else {
+        } else {
           _showCustomDialog(
-        title: "Passport not valid",
-        message: "Make sure you upload a valid passport.",
-        icon: Icons.cancel_presentation_rounded,
-        iconColor: Colors.orange,
-      );
+            title: "Passport not valid",
+            message: "Make sure you upload a valid passport.",
+            icon: Icons.cancel_presentation_rounded,
+            iconColor: Colors.orange,
+          );
         }
-      } 
+      }
     } catch (e) {
       setState(() => _processingError = 'OCR failed: ${e.toString()}');
     } finally {
@@ -310,113 +413,111 @@ class _PassportState extends State<Passport> {
     }
   }
 
-void _extractNIN() {
-  String? nin;
+  void _extractNIN() {
+    String? nin;
 
-  final cleanText = _ocrText.replaceAll('\n', ' ').toLowerCase();
+    final cleanText = _ocrText.replaceAll('\n', ' ').toLowerCase();
 
-  // Match either:
-  // 1. 18 digits with optional single spaces between them
-  // 2. Or 18 consecutive digits
-  final regex = RegExp(r'\b(?:\d\s?){18}\b');
+    // Match either:
+    // 1. 18 digits with optional single spaces between them
+    // 2. Or 18 consecutive digits
+    final regex = RegExp(r'\b(?:\d\s?){18}\b');
 
-  const keywords = [
-    'رقم التعريف الوطني',
-    'الوطني التعريف رقم',
-    'national identification number',
-    'nin'
-  ];
+    const keywords = [
+      'رقم التعريف الوطني',
+      'الوطني التعريف رقم',
+      'national identification number',
+      'nin'
+    ];
 
-  for (final keyword in keywords) {
-    final index = cleanText.indexOf(keyword);
-    if (index != -1) {
-      final afterKeyword = cleanText.substring(index, index + 100);
-      final match = regex.firstMatch(afterKeyword);
+    for (final keyword in keywords) {
+      final index = cleanText.indexOf(keyword);
+      if (index != -1) {
+        final afterKeyword = cleanText.substring(index, index + 100);
+        final match = regex.firstMatch(afterKeyword);
+        if (match != null) {
+          // Remove spaces to store only digits
+          nin = match.group(0)?.replaceAll(' ', '');
+          break;
+        }
+      }
+    }
+
+    // Fallback search
+    if (nin == null) {
+      final match = regex.firstMatch(cleanText);
       if (match != null) {
-        // Remove spaces to store only digits
         nin = match.group(0)?.replaceAll(' ', '');
-        break;
       }
     }
-  }
 
-  // Fallback search
-  if (nin == null) {
-    final match = regex.firstMatch(cleanText);
-    if (match != null) {
-      nin = match.group(0)?.replaceAll(' ', '');
+    setState(() => _extractedNIN = nin ?? '');
+
+    if (_extractedNIN.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('NIN not found. Try a clearer image.')),
+      );
+      debugPrint('OCR Text:\n$_ocrText');
+    } else {
+      debugPrint('Extracted NIN: $_extractedNIN');
     }
   }
 
-  setState(() => _extractedNIN = nin ?? '');
+  void _extractFamilyName() {
+    String? familyname;
 
-  if (_extractedNIN.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('NIN not found. Try a clearer image.')),
-    );
-    debugPrint('OCR Text:\n$_ocrText');
-  } else {
-    debugPrint('Extracted NIN: $_extractedNIN');
-  }
-}
-
-
-void _extractFamilyName() {
-  String? familyname;
-
-  final startIndex = _ocrText.toLowerCase().indexOf('p<dza');
-  if (startIndex != -1) {
-    final fromIndex = startIndex + 5; // skip "p<dza"
-    final endIndex = _ocrText.indexOf('<<', fromIndex);
-    if (endIndex != -1 && endIndex > fromIndex) {
-      final rawName = _ocrText.substring(fromIndex, endIndex);
-      // Remove any non-letter characters (like <, spaces, etc.)
-      final cleaned = rawName.replaceAll(RegExp(r'[^A-Za-z]'), '');
-      if (cleaned.isNotEmpty) {
-        familyname = cleaned.toUpperCase();
+    final startIndex = _ocrText.toLowerCase().indexOf('p<dza');
+    if (startIndex != -1) {
+      final fromIndex = startIndex + 5; // skip "p<dza"
+      final endIndex = _ocrText.indexOf('<<', fromIndex);
+      if (endIndex != -1 && endIndex > fromIndex) {
+        final rawName = _ocrText.substring(fromIndex, endIndex);
+        // Remove any non-letter characters (like <, spaces, etc.)
+        final cleaned = rawName.replaceAll(RegExp(r'[^A-Za-z]'), '');
+        if (cleaned.isNotEmpty) {
+          familyname = cleaned.toUpperCase();
+        }
       }
     }
+
+    setState(() => _extractedNom = familyname ?? '');
+
+    if (_extractedNom.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Nom not found. Try better quality image')),
+      );
+      debugPrint('OCR Text:\n$_ocrText');
+    }
   }
-
-  setState(() => _extractedNom = familyname ?? '');
-
-  if (_extractedNom.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Nom not found. Try better quality image')),
-    );
-    debugPrint('OCR Text:\n$_ocrText');
-  }
-}
-
 
   void _extractGivenName() {
-  String? givenname;
+    String? givenname;
 
-  // Find the last name section, usually like "surname<<given<name<<<<<"
-  final match = RegExp(r'<<([A-Za-z<]+)<<*').firstMatch(_ocrText);
+    // Find the last name section, usually like "surname<<given<name<<<<<"
+    final match = RegExp(r'<<([A-Za-z<]+)<<*').firstMatch(_ocrText);
 
-  if (match != null) {
-    final rawGiven = match.group(1)!;
+    if (match != null) {
+      final rawGiven = match.group(1)!;
 
-    // Clean it up: replace '<' with space, remove non-letters, trim spaces
-    givenname = rawGiven
-        .replaceAll('<', ' ')
-        .replaceAll(RegExp(r'[^A-Za-z\s]'), '')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim()
-        .toUpperCase();
+      // Clean it up: replace '<' with space, remove non-letters, trim spaces
+      givenname = rawGiven
+          .replaceAll('<', ' ')
+          .replaceAll(RegExp(r'[^A-Za-z\s]'), '')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim()
+          .toUpperCase();
+    }
+
+    setState(() => _extractedPrenom = givenname ?? '');
+
+    if (_extractedPrenom.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('Given name not found. Try better quality image')),
+      );
+      debugPrint('OCR Text:\n$_ocrText');
+    }
   }
-
-  setState(() => _extractedPrenom = givenname ?? '');
-
-  if (_extractedPrenom.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Given name not found. Try better quality image')),
-    );
-    debugPrint('OCR Text:\n$_ocrText');
-  }
-}
-
 
   void _extractBirthdate() {
     String? birthdate;
@@ -435,6 +536,9 @@ void _extractFamilyName() {
       if (rawDigits != null && rawDigits.length >= 6) {
         final digits =
             rawDigits.substring(0, 6); // Take only the first 6 digits
+        setState(() {
+          mrzData['dob'] = digits;
+        });
         birthdate = _formatDate(digits);
         debugPrint('Extracted Birthdate: $birthdate');
       }
@@ -468,6 +572,9 @@ void _extractFamilyName() {
       final rawDigits = match.group(1)?.replaceAll(RegExp(r'\s+'), '');
       if (rawDigits != null && rawDigits.length >= 6) {
         final digits = rawDigits.substring(0, 6); // First 6 digits
+        setState(() {
+          mrzData['doe'] = digits;
+        });
         endDate = _formatDate(digits);
         debugPrint('Extracted Expiry Date: $endDate');
       }
@@ -496,44 +603,31 @@ void _extractFamilyName() {
     return '$day.$month.$fullYear';
   }
 
-  //String _extractGivenName(String text) {
-  //  final match =
-  //    RegExp(r'(?i)Given names\s*/\s*Prénoms\s*([A-Z]+)').firstMatch(text);
-  // String result = match != null ? match.group(1)! : '';
-  //debugPrint("Extracted Given name: $result");
-  //return result;
-  //}
+  void _extractCardnumber() {
+    String? cnumber;
 
-  // String _extractBirthdate(String text) {
-  //   final match = RegExp(
-  //           r'Date of birth\s*/\s*Date de naissance\s*(\d{2}\s*[A-Za-z]+\s*\d{4})')
-  //      .firstMatch(text);
-  // return match != null ? match.group(1)! : '';
-//  }
+    // Look for 9 digits followed by optional digit and DZA (with or without spaces)
+    final match = RegExp(r'(\d{9})\d?\s*d\s*z\s*a', caseSensitive: false)
+        .firstMatch(_ocrText);
 
-void _extractCardnumber() {
-  String? cnumber;
+    if (match != null) {
+      cnumber = match.group(1); // Extract only the first 9 digits
+    }
 
-  // Look for 9 digits followed by optional digit and DZA (with or without spaces)
-  final match = RegExp(r'(\d{9})\d?\s*d\s*z\s*a', caseSensitive: false)
-      .firstMatch(_ocrText);
+    setState(() => _extractedCardnumber = cnumber ?? '');
+    setState(() {
+      mrzData['docNumber'] = _extractedCardnumber;
+    });
 
-  if (match != null) {
-    cnumber = match.group(1); // Extract only the first 9 digits
+    if (_extractedCardnumber.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Card number not found. Try better quality image'),
+        ),
+      );
+      debugPrint('OCR Text:\n$_ocrText'); // For debugging
+    }
   }
-
-  setState(() => _extractedCardnumber = cnumber ?? '');
-
-  if (_extractedCardnumber.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Card number not found. Try better quality image'),
-      ),
-    );
-    debugPrint('OCR Text:\n$_ocrText'); // For debugging
-  }
-}
-
 
   String _normalizeText(String text) {
     // Clean text for better processing
@@ -552,13 +646,13 @@ void _extractCardnumber() {
             ''); // Garde les caractères spéciaux français
   }
 
-  //Future<void> _takeSelfie() async {
-  // final picker = ImagePicker();
-  // final image = await picker.pickImage(source: ImageSource.camera);
-  //if (image != null) {
-  //  setState(() => _selfiePath = image.path);
-  //  }
-  //}
+//Future<void> _takeSelfie() async {
+// final picker = ImagePicker();
+// final image = await picker.pickImage(source: ImageSource.camera);
+//if (image != null) {
+//  setState(() => _selfiePath = image.path);
+//  }
+//}
 
   Future<void> _takeSelfie() async {
     final XFile? imageFile =
@@ -572,9 +666,36 @@ void _extractCardnumber() {
       final croppedFace = await _cropFace(image, face);
       if (croppedFace != null) {
         setState(() => _selfiePath = croppedFace.path);
+        ResultPage.selfiePath = croppedFace.path;
       }
+    }else{
+      return;
     }
-    await uploadAndCompareFaces();
+
+    final nfcStatus = await Ekyc.checkNfc();
+    if (nfcStatus['supported'] == false || nfcStatus['enabled'] == false) {
+      if (!context.mounted) return null;
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('NFC Not Enabled'),
+          content: Text(nfcStatus['error'] != null
+              ? 'NFC is not enabled: ${nfcStatus['error']}'
+              : 'NFC is not enabled. Please enable NFC in your device settings and try again.'),
+          actions: [
+            TextButton(
+                onPressed: () {
+                  if (!context.mounted) return;
+                  Navigator.of(context).pop();
+                },
+                child: const Text('OK'))
+          ],
+        ),
+      );
+      return null;
+    }
+    final result = await _startScan();
+    // await uploadAndCompareFaces();
   }
 
   Future<Face?> _detectFace(File imageFile) async {
@@ -717,53 +838,53 @@ void _extractCardnumber() {
     }
   }
 
-  Future<void> uploadAndCompareFaces() async {
-    try {
-      if (_frontIdPath == null || _selfiePath == null) {
-        print("Please upload both images.");
-        return;
-      }
+// Future<void> uploadAndCompareFaces() async {
+//   try {
+//     if (_frontIdPath == null || _selfiePath == null) {
+//       print("Please upload both images.");
+//       return;
+//     }
+//
+//     // Create a multipart request for the face comparison
+//     var comparisonRequest = http.MultipartRequest(
+//       'POST',
+//       Uri.parse('http://105.96.12.227:8000/compare-faces'), // FastAPI endpoint
+//     );
+//
+//     // Add files for comparison
+//     comparisonRequest.files.add(await http.MultipartFile.fromPath(
+//         'idCardFace', _extractedPhoto!.path));
+//     comparisonRequest.files
+//         .add(await http.MultipartFile.fromPath('selfie', _selfiePath!));
+//
+//     // Send the request
+//     var comparisonResponse = await comparisonRequest.send();
+//     final comparisonRespStr = await comparisonResponse.stream.bytesToString();
+//     final comparisonResponseData = jsonDecode(comparisonRespStr);
+//
+//     if (comparisonResponse.statusCode != 200) {
+//       setState(() {
+//         _comparisonResult =
+//             'Erreur: ${comparisonResponseData['error'] ?? 'Unknown error'}';
+//       });
+//       return;
+//     }
+//
+//     final String message = comparisonResponseData['message'] ?? 'No message';
+//     final bool isVerified = comparisonResponseData['verified'] ?? false;
+//
+//     setState(() {
+//       _comparisonResult = message;
+//     });
+//   } catch (e) {
+//     print('Error during face comparison: $e');
+//     setState(() {
+//       _comparisonResult = 'Erreur lors de la comparaison: ${e.toString()}';
+//     });
+//   }
+// }
 
-      // Create a multipart request for the face comparison
-      var comparisonRequest = http.MultipartRequest(
-        'POST',
-        Uri.parse('http://192.168.1.7:8000/compare-faces'), // FastAPI endpoint
-      );
-
-      // Add files for comparison
-      comparisonRequest.files.add(await http.MultipartFile.fromPath(
-          'idCardFace', _extractedPhoto!.path));
-      comparisonRequest.files
-          .add(await http.MultipartFile.fromPath('selfie', _selfiePath!));
-
-      // Send the request
-      var comparisonResponse = await comparisonRequest.send();
-      final comparisonRespStr = await comparisonResponse.stream.bytesToString();
-      final comparisonResponseData = jsonDecode(comparisonRespStr);
-
-      if (comparisonResponse.statusCode != 200) {
-        setState(() {
-          _comparisonResult =
-              'Erreur: ${comparisonResponseData['error'] ?? 'Unknown error'}';
-        });
-        return;
-      }
-
-      final String message = comparisonResponseData['message'] ?? 'No message';
-      final bool isVerified = comparisonResponseData['verified'] ?? false;
-
-      setState(() {
-        _comparisonResult = message;
-      });
-    } catch (e) {
-      print('Error during face comparison: $e');
-      setState(() {
-        _comparisonResult = 'Erreur lors de la comparaison: ${e.toString()}';
-      });
-    }
-  }
-
-  // Method for submitting the form
+// Method for submitting the form
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -795,7 +916,7 @@ void _extractCardnumber() {
     try {
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('http://192.168.1.7:5000/save-id-card'),
+        Uri.parse('http://105.96.12.227:5000/save-id-card'),
       );
 
       request.fields.addAll({
@@ -956,154 +1077,189 @@ void _extractCardnumber() {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Column(
+      body: Stack(
         children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.only(top: 50, bottom: 30),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFF155970), Color(0xFF2A0A3D)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.only(
-                bottomLeft: Radius.circular(40),
-                bottomRight: Radius.circular(40),
-              ),
-            ),
-            child: Column(
-              children: [
-                Image.asset('assets/images/logo.png', height: 80),
-                const SizedBox(height: 12),
-                const Text(
-                  'Verify your identity with',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w400,
+          Column(
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.only(top: 50, bottom: 30),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF155970), Color(0xFF2A0A3D)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.only(
+                    bottomLeft: Radius.circular(40),
+                    bottomRight: Radius.circular(40),
                   ),
                 ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Passport',
-                  style: TextStyle(
-                    fontSize: 23,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'Poppins',
-                    color: Colors.white,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(40),
-                  topRight: Radius.circular(40),
+                child: Column(
+                  children: [
+                    Image.asset('assets/images/logo.png', height: 80),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Verify your identity with',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Passport',
+                      style: TextStyle(
+                        fontSize: 23,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Poppins',
+                        color: Colors.white,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              child: SingleChildScrollView(
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildTextField(_nomController, 'Family name',
-                          required: true),
-                      _buildTextField(_prenomController, 'Given name',
-                          required: true),
-                      _buildTextField(
-                        _ninController,
-                        'Identity number',
-                        required: true,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          LengthLimitingTextInputFormatter(18),
-                          FilteringTextInputFormatter.digitsOnly
-                        ],
-                      ),
-                      _buildTextField(
-                        _cnumberController,
-                        'Card number',
-                        required: true,
-                        inputFormatters: [LengthLimitingTextInputFormatter(9)],
-                      ),
-                      _buildTextField(
-                        _birthDateController,
-                        'Birthdate',
-                        required: true,
-                        onTap: () => _selectDate(context),
-                      ),
-                      _buildTextField(
-                        _enddateController,
-                        'Expiry Date',
-                        required: true,
-                        onTap: () => _selectDate(context),
-                      ),
-                      const SizedBox(height: 30),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(40),
+                      topRight: Radius.circular(40),
+                    ),
+                  ),
+                  child: SingleChildScrollView(
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _buildUploadCard(
-                              'Front Side',
-                              'assets/images/passportcard.png',
-                              true,
-                              _frontUploaded,
-                              _isFrontDataFilled),
-                        ],
-                      ),
-                      const SizedBox(height: 30),
-                      Center(
-                        child: _buildUploadIcon(
-                          "Selfie",
-                          _selfiePath != null,
-                          _takeSelfie, // 👈 this should be your actual function
-                          Icons.camera_alt,
-                        ),
-                      ),
-                      const SizedBox(height: 30),
-                      if (_comparisonResult.isNotEmpty)
-                        Text(
-                          _comparisonResult,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: _comparisonResult
-                                    .toLowerCase()
-                                    .contains('faces match!')
-                                ? Colors.green
-                                : Colors.red,
+                          // _buildTextField(_nomController, 'Family name',
+                          //     required: true),
+                          // _buildTextField(_prenomController, 'Given name',
+                          //     required: true),
+                          // _buildTextField(
+                          //   _ninController,
+                          //   'Identity number',
+                          //   required: true,
+                          //   keyboardType: TextInputType.number,
+                          //   inputFormatters: [
+                          //     LengthLimitingTextInputFormatter(18),
+                          //     FilteringTextInputFormatter.digitsOnly
+                          //   ],
+                          // ),
+                          // _buildTextField(
+                          //   _cnumberController,
+                          //   'Card number',
+                          //   required: true,
+                          //   inputFormatters: [LengthLimitingTextInputFormatter(9)],
+                          // ),
+                          // _buildTextField(
+                          //   _birthDateController,
+                          //   'Birthdate',
+                          //   required: true,
+                          //   onTap: () => _selectDate(context),
+                          // ),
+                          // _buildTextField(
+                          //   _enddateController,
+                          //   'Expiry Date',
+                          //   required: true,
+                          //   onTap: () => _selectDate(context),
+                          // ),
+                          const SizedBox(height: 30),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              _buildUploadCard(
+                                  'Front Side',
+                                  'assets/images/passportcard.png',
+                                  true,
+                                  _frontUploaded,
+                                  _isFrontDataFilled),
+                            ],
                           ),
-                        ),
-                      const SizedBox(height: 20),
-                      Center(
-                        child: ElevatedButton(
-                          onPressed: (!allFieldsFilled) ? null : _submitForm,
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 60, vertical: 16),
-                            backgroundColor: const Color(0xFF155970),
-                            disabledBackgroundColor: Colors.grey.shade400,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(30),
+                          const SizedBox(height: 30),
+                          Center(
+                            child: _buildUploadIcon(
+                              "Selfie",
+                              _selfiePath != null,
+                              _takeSelfie,
+                              // 👈 this should be your actual function
+                              Icons.camera_alt,
                             ),
                           ),
-                          child: const Text('Submit',
-                              style: TextStyle(color: Colors.white)),
-                        ),
-                      )
-                    ],
+                          const SizedBox(height: 30),
+                          if (_comparisonResult.isNotEmpty)
+                            Text(
+                              _comparisonResult,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: _comparisonResult
+                                        .toLowerCase()
+                                        .contains('faces match!')
+                                    ? Colors.green
+                                    : Colors.red,
+                              ),
+                            ),
+                          const SizedBox(height: 20),
+                          Center(
+                            child: ElevatedButton(
+                              onPressed:
+                                  (!allFieldsFilled) ? null : _submitForm,
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 60, vertical: 16),
+                                backgroundColor: const Color(0xFF155970),
+                                disabledBackgroundColor: Colors.grey.shade400,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(30),
+                                ),
+                              ),
+                              child: const Text('Submit',
+                                  style: TextStyle(color: Colors.white)),
+                            ),
+                          )
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
+            ],
           ),
+          _scanning
+              ? Container(
+                  width: MediaQuery.of(context).size.width,
+                  height: MediaQuery.of(context).size.height,
+                  color: Colors.black.withOpacity(0.7),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(
+                          backgroundColor: Colors.grey[300],
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.blueAccent),
+                        ),
+                        const SizedBox(height: 20),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Text(
+                            "Please keep your ID Document close to the back of your phone while reading the NFC chip...",
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 16),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : Container(),
         ],
       ),
     );
@@ -1142,12 +1298,12 @@ void _extractCardnumber() {
             validator: validator ??
                 (value) =>
                     value == null || value.isEmpty ? 'Required field' : null,
-            style: const TextStyle(fontSize: 16), // Texte saisi dans le champ
+            style: const TextStyle(fontSize: 16),
+            // Texte saisi dans le champ
             decoration: InputDecoration(
               hintText: label,
-              hintStyle: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade600), // Taille placeholder
+              hintStyle: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              // Taille placeholder
               filled: true,
               fillColor: Colors.grey.shade100,
               border: OutlineInputBorder(
@@ -1189,7 +1345,7 @@ void _extractCardnumber() {
         const SizedBox(height: 8),
         Row(
           mainAxisSize: MainAxisSize.min,
-                    children: [
+          children: [
             GestureDetector(
               onTap: () => _showImageSourceDialog(context, isFront: isFront),
               child: Text('Upload',

@@ -9,6 +9,14 @@ from mtcnn.mtcnn import MTCNN
 from keras_facenet import FaceNet
 import joblib
 import traceback
+import base64
+import io
+import glymur
+from PIL import Image
+import numpy as np
+from pydantic import BaseModel
+import uuid
+import os
 
 app = FastAPI()
 
@@ -23,7 +31,7 @@ app.add_middleware(
 # Load detector, embedder, and model
 detector = MTCNN()
 embedder = FaceNet()
-model = joblib.load('C:/Users/adelc/OneDrive/Desktop/my_svm_face_verification_model.pkl')
+model = joblib.load('C:/Users/i.chaibedraa/Downloads/my_svm_face_verification_model.pkl')
 
 # Utility: Extract and preprocess face
 def extract_face(image_path):
@@ -41,11 +49,47 @@ def extract_face(image_path):
     
     return face
 
+@app.get("/test")
+async def test():
+    return JSONResponse(content={"message": "API is working!"})
+class ConvertRequest(BaseModel):
+    jp2_base64: str
+
+@app.post("/convert")
+async def convert(req: ConvertRequest):
+    # Decode base64 to bytes
+    jp2_bytes = base64.b64decode(req.jp2_base64)
+
+    # Save to temporary .jp2 file
+    temp_filename = f"temp_{uuid.uuid4().hex}.jp2"
+    with open(temp_filename, "wb") as f:
+        f.write(jp2_bytes)
+
+    try:
+        # Read JP2 file using Glymur
+        jp2_image = glymur.Jp2k(temp_filename).read()
+        pil_img = Image.fromarray(jp2_image)
+
+        # Convert to JPEG in memory
+        output = io.BytesIO()
+        pil_img.save(output, format='JPEG')
+        jpg_bytes = output.getvalue()
+
+        # Return base64-encoded JPEG
+        return base64.b64encode(jpg_bytes).decode('utf-8')
+
+    finally:
+        # Always clean up the temp file
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
+
 @app.post("/compare-faces")
 async def compare_faces(idCardFace: UploadFile = File(...), selfie: UploadFile = File(...)):
     idCardFace_path = "temp_id.jpg"
     selfie_path = "temp_selfie.jpg"
     threshold = 0.6  # Custom threshold
+
+    print(f"Received files: {idCardFace.filename}, {selfie.filename}")
 
     try:
         # Save uploaded files
@@ -69,6 +113,8 @@ async def compare_faces(idCardFace: UploadFile = File(...), selfie: UploadFile =
         # Clean up
         os.remove(idCardFace_path)
         os.remove(selfie_path)
+
+        print(f"Confidence: {confidence}, Prediction: {prediction}")
 
         return JSONResponse(content={
             "verified": bool(prediction),
