@@ -26,6 +26,7 @@ class widgetPageState extends State<ResultPage> {
     super.initState();
     SchedulerBinding.instance.addPostFrameCallback((_) async{
       await uploadAndCompareFaces();
+      // await extractArabicText();
     });
   }
 
@@ -47,6 +48,50 @@ class widgetPageState extends State<ResultPage> {
             'idCardFace', ResultPage.imagePath!));
         comparisonRequest.files
             .add(await http.MultipartFile.fromPath('selfie', ResultPage.selfiePath!));
+
+        // Send the request
+        var comparisonResponse = await comparisonRequest.send();
+        final comparisonRespStr = await comparisonResponse.stream.bytesToString();
+        final comparisonResponseData = jsonDecode(comparisonRespStr);
+
+        if (comparisonResponse.statusCode != 200) {
+          setState(() {
+            isIdentityVerified.value = false;
+          });
+          return;
+        }
+
+        final String message = comparisonResponseData['message'] ?? 'No message';
+        final bool isVerified = comparisonResponseData['verified'] ?? false;
+
+        setState(() {
+          isIdentityVerified.value = isVerified;
+        });
+      } catch (e) {
+        print('Error during face comparison: $e');
+        setState(() {
+          isIdentityVerified.value = false;
+        });
+      }
+    }
+
+  Future<void> extractArabicText() async {
+      try {
+        if (ResultPage.imagePath == null || ResultPage.selfiePath == null) {
+          print("Please upload both images.");
+          return;
+        }
+
+        // Create a multipart request for the face comparison
+        var comparisonRequest = http.MultipartRequest(
+          'POST',
+          Uri.parse('http://105.96.12.227:8000/extract-text'), // FastAPI endpoint
+        );
+
+        // Add files for comparison
+        comparisonRequest.files.add(await http.MultipartFile.fromPath(
+            'image', ResultPage.imagePath!));
+
 
         // Send the request
         var comparisonResponse = await comparisonRequest.send();

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1092568517967",
+    "project_id": "ekyc-44826",
+    "storage_bucket": "ekyc-44826.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1092568517967:android:2f452299d0c3e7b77cc93a",
+        "android_client_info": {
+          "package_name": "com.example.ekyc"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAliMkHcGJobTMr5N8e5hKbeodZNOUbDkw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

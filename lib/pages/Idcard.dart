@@ -117,22 +117,43 @@ class _IdcardState extends State<Idcard> {
   void initState() {
     super.initState();
     _formData['document_type'] = widget.documentType;
-    Ekyc.setOnPassportReadListener((passportData) async{
-      _timeoutTimer?.cancel();
-      await savePassportDigitalImageToResultPage(passportData);
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => ResultPage(
-            result: passportData,
+    Ekyc.setOnPassportReadListener(
+          (passportData) async {
+        _timeoutTimer?.cancel();
+        await savePassportDigitalImageToResultPage(passportData);
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => ResultPage(result: passportData),
           ),
-        ),
-      );
-      setState(() {
-        _result = passportData;
-        _scanning = false;
-        _timeout = false;
-      });
-    });
+        );
+        setState(() {
+          _result = passportData;
+          _scanning = false;
+          _timeout = false;
+        });
+      },
+      onError: (error) {
+        // Show a dialog or snackbar
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text('Error Reading ID Card'),
+            content: Text(error),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: Text('OK'),
+              ),
+            ],
+          ),
+        );
+        setState(() {
+          _scanning = false;
+          _timeout = false;
+        });
+      },
+    );
+
   }
 
   // Base64 image to file function
@@ -385,6 +406,9 @@ class _IdcardState extends State<Idcard> {
     final inputImage = InputImage.fromFilePath(image.path);
 
     try {
+
+
+
       final recognizedText = await textRecognizer.processImage(inputImage);
       _ocrText = _normalizeText(recognizedText.text);
 
