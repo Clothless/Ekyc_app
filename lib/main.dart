@@ -228,8 +228,8 @@ class WelcomePage extends StatelessWidget {
             ),
             SizedBox(height: 16),
             ElevatedButton.icon(
-              icon: Icon(Icons.book),
-              label: Text("Scan Passport"),
+              icon: Icon(Icons.book, color: Colors.white,),
+              label: Text("Scan Passport", style: TextStyle(color: Colors.white),),
               onPressed: () => _onScanPassport(context),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.deepPurple,
