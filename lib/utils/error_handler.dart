@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 class ServerErrorHandler {
-  static const int _timeoutSeconds = 30;
+  static const int _timeoutSeconds = 60;
   static const String _baseUrl = 'http://105.96.12.227:8000';
 
   /// Handles server communication with comprehensive error handling
