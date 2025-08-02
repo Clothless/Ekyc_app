@@ -17,14 +17,10 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
   late AnimationController _fadeController;
   late AnimationController _slideController;
   late AnimationController _pulseController;
-  late AnimationController _bounceController;
-  late AnimationController _scaleController;
   
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
   late Animation<double> _pulseAnimation;
-  late Animation<double> _bounceAnimation;
-  late Animation<double> _scaleAnimation;
 
   bool _isEditing = false;
   bool _showSuccessMessage = false;
@@ -35,23 +31,15 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
     
     // Initialize animation controllers
     _fadeController = AnimationController(
-      duration: Duration(milliseconds: 1500),
-      vsync: this,
-    );
-    _slideController = AnimationController(
       duration: Duration(milliseconds: 1000),
       vsync: this,
     );
-    _pulseController = AnimationController(
-      duration: Duration(milliseconds: 1500),
-      vsync: this,
-    );
-    _bounceController = AnimationController(
+    _slideController = AnimationController(
       duration: Duration(milliseconds: 800),
       vsync: this,
     );
-    _scaleController = AnimationController(
-      duration: Duration(milliseconds: 600),
+    _pulseController = AnimationController(
+      duration: Duration(milliseconds: 2000),
       vsync: this,
     );
 
@@ -65,43 +53,25 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
     ));
 
     _slideAnimation = Tween<Offset>(
-      begin: Offset(0, 0.5),
+      begin: Offset(0, 0.3),
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _slideController,
-      curve: Curves.elasticOut,
+      curve: Curves.easeOut,
     ));
 
     _pulseAnimation = Tween<double>(
-      begin: 0.8,
-      end: 1.2,
+      begin: 0.95,
+      end: 1.05,
     ).animate(CurvedAnimation(
       parent: _pulseController,
       curve: Curves.easeInOut,
-    ));
-
-    _bounceAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _bounceController,
-      curve: Curves.elasticOut,
-    ));
-
-    _scaleAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _scaleController,
-      curve: Curves.easeOutBack,
     ));
 
     // Start animations
     _fadeController.forward();
     _slideController.forward();
     _pulseController.repeat(reverse: true);
-    _bounceController.forward();
-    _scaleController.forward();
 
     widget.data.forEach((key, value) {
       if (key != 'rawText') {
@@ -115,113 +85,95 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
     _fadeController.dispose();
     _slideController.dispose();
     _pulseController.dispose();
-    _bounceController.dispose();
-    _scaleController.dispose();
     _controllers.forEach((_, controller) => controller.dispose());
     super.dispose();
   }
 
   Widget _buildFieldCard(String label, TextEditingController controller, {Color? color}) {
-    return AnimatedBuilder(
-      animation: _bounceAnimation,
-      builder: (context, child) {
-        return Transform.scale(
-          scale: 0.9 + (_bounceAnimation.value * 0.1),
-          child: Container(
-            margin: EdgeInsets.symmetric(vertical: 10, horizontal: 6),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  (color ?? Colors.indigo).withOpacity(0.15),
-                  (color ?? Colors.indigo).withOpacity(0.08),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: (color ?? Colors.indigo).withOpacity(0.3),
-                width: 2,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: (color ?? Colors.indigo).withOpacity(0.2),
-                  blurRadius: 12,
-                  spreadRadius: 2,
+    return Container(
+      margin: EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: (color ?? Colors.indigo).withOpacity(0.2),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 4,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.edit,
+                  color: (color ?? Colors.indigo).shade600,
+                  size: 20,
+                ),
+                SizedBox(width: 8),
+                Text(
+                  _formatLabel(label),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: (color ?? Colors.indigo).shade700,
+                  ),
                 ),
               ],
             ),
-            child: Padding(
-              padding: EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: (color ?? Colors.indigo).withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          Icons.edit,
-                          color: (color ?? Colors.indigo).withOpacity(0.8),
-                          size: 20,
-                        ),
-                      ),
-                      SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          _formatLabel(label),
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: (color ?? Colors.indigo).withOpacity(0.8),
-                          ),
-                        ),
-                      ),
-                    ],
+            SizedBox(height: 12),
+            TextFormField(
+              controller: controller,
+              decoration: InputDecoration(
+                hintText: 'Enter ${_formatLabel(label).toLowerCase()}',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(
+                    color: (color ?? Colors.indigo).withOpacity(0.3),
                   ),
-                  SizedBox(height: 12),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.7),
-                      borderRadius: BorderRadius.circular(15),
-                      border: Border.all(
-                        color: (color ?? Colors.indigo).withOpacity(0.2),
-                        width: 1,
-                      ),
-                    ),
-                    child: TextFormField(
-                      controller: controller,
-                      decoration: InputDecoration(
-                        hintText: 'Enter ${_formatLabel(label).toLowerCase()}',
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.all(16),
-                        hintStyle: TextStyle(
-                          color: Colors.grey.shade500,
-                          fontSize: 14,
-                        ),
-                      ),
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey.shade800,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      onChanged: (value) {
-                        setState(() {
-                          _isEditing = true;
-                        });
-                      },
-                    ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(
+                    color: (color ?? Colors.indigo).withOpacity(0.3),
                   ),
-                ],
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(
+                    color: (color ?? Colors.indigo).shade600,
+                    width: 2,
+                  ),
+                ),
+                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                hintStyle: TextStyle(
+                  color: Colors.grey.shade500,
+                  fontSize: 14,
+                ),
               ),
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey.shade800,
+                fontWeight: FontWeight.w500,
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _isEditing = true;
+                });
+              },
             ),
-          ),
-        );
-      },
+          ],
+        ),
+      ),
     );
   }
 
@@ -259,44 +211,23 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
           scale: _pulseAnimation.value,
           child: Container(
             margin: EdgeInsets.all(16),
-            padding: EdgeInsets.all(20),
+            padding: EdgeInsets.all(16),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Colors.green.shade200,
-                  Colors.green.shade100,
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: Colors.green.shade400,
-                width: 3,
+                color: Colors.green.shade300,
+                width: 2,
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.green.withOpacity(0.4),
-                  blurRadius: 20,
-                  spreadRadius: 5,
-                ),
-              ],
             ),
             child: Row(
               children: [
-                Container(
-                  padding: EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.3),
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: Icon(
-                    Icons.check_circle,
-                    color: Colors.green.shade700,
-                    size: 30,
-                  ),
+                Icon(
+                  Icons.check_circle,
+                  color: Colors.green.shade600,
+                  size: 24,
                 ),
-                SizedBox(width: 16),
+                SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -304,17 +235,17 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
                       Text(
                         "Data Saved Successfully!",
                         style: TextStyle(
-                          fontSize: 18,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: Colors.green.shade800,
+                          color: Colors.green.shade700,
                         ),
                       ),
-                      SizedBox(height: 4),
+                      SizedBox(height: 2),
                       Text(
                         "Your OCR data has been updated",
                         style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade700,
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
                         ),
                       ),
                     ],
@@ -328,81 +259,30 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
     );
   }
 
-  Widget _buildAnimatedButton({
+  Widget _buildButton({
     required VoidCallback onPressed,
     required IconData icon,
     required String label,
     required Color color,
     bool isEnabled = true,
   }) {
-    return AnimatedBuilder(
-      animation: _bounceAnimation,
-      builder: (context, child) {
-        return Transform.scale(
-          scale: 0.95 + (_bounceAnimation.value * 0.05),
-          child: Container(
-            margin: EdgeInsets.symmetric(vertical: 8, horizontal: 6),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  color.withOpacity(isEnabled ? 0.9 : 0.3),
-                  color.withOpacity(isEnabled ? 0.7 : 0.2),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: color.withOpacity(isEnabled ? 0.4 : 0.2),
-                width: 2,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: color.withOpacity(isEnabled ? 0.3 : 0.1),
-                  blurRadius: 15,
-                  spreadRadius: 3,
-                ),
-              ],
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: isEnabled ? onPressed : null,
-                borderRadius: BorderRadius.circular(18),
-                child: Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.3),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          icon,
-                          color: Colors.white,
-                          size: 24,
-                        ),
-                      ),
-                      SizedBox(width: 16),
-                      Text(
-                        label,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+    return Container(
+      margin: EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: isEnabled ? onPressed : null,
+        icon: Icon(icon),
+        label: Text(label),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: isEnabled ? color : Colors.grey.shade400,
+          foregroundColor: Colors.white,
+          padding: EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
           ),
-        );
-      },
+          elevation: isEnabled ? 2 : 0,
+        ),
+      ),
     );
   }
 
@@ -419,18 +299,12 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
           style: TextStyle(
             fontWeight: FontWeight.bold,
             color: Colors.white,
-            fontSize: 20,
           ),
         ),
         centerTitle: true,
         backgroundColor: Colors.indigo.shade600,
         elevation: 0,
         iconTheme: IconThemeData(color: Colors.white),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(
-            bottom: Radius.circular(20),
-          ),
-        ),
       ),
       body: Container(
         decoration: BoxDecoration(
@@ -438,7 +312,7 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Colors.indigo.shade100,
+              Colors.indigo.shade50,
               Colors.white,
             ],
           ),
@@ -454,86 +328,50 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Header Section
-                    AnimatedBuilder(
-                      animation: _scaleAnimation,
-                      builder: (context, child) {
-                        return Transform.scale(
-                          scale: 0.9 + (_scaleAnimation.value * 0.1),
-                          child: Container(
-                            margin: EdgeInsets.symmetric(vertical: 20, horizontal: 6),
-                            padding: EdgeInsets.all(24),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  Colors.indigo.shade200,
-                                  Colors.indigo.shade100,
-                                ],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              borderRadius: BorderRadius.circular(25),
-                              border: Border.all(
-                                color: Colors.indigo.shade400,
-                                width: 3,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.indigo.withOpacity(0.3),
-                                  blurRadius: 15,
-                                  spreadRadius: 3,
-                                ),
-                              ],
-                            ),
-                            child: Row(
+                    Container(
+                      margin: EdgeInsets.symmetric(vertical: 16, horizontal: 4),
+                      padding: EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.indigo.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.indigo.shade300,
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.text_fields,
+                            color: Colors.indigo.shade600,
+                            size: 24,
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Container(
-                                  padding: EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: Colors.indigo.shade300,
-                                    borderRadius: BorderRadius.circular(15),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.indigo.withOpacity(0.3),
-                                        blurRadius: 8,
-                                        spreadRadius: 1,
-                                      ),
-                                    ],
-                                  ),
-                                  child: Icon(
-                                    Icons.text_fields,
-                                    color: Colors.white,
-                                    size: 28,
+                                Text(
+                                  "Extracted Fields",
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.indigo.shade700,
                                   ),
                                 ),
-                                SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        "Extracted Fields",
-                                        style: TextStyle(
-                                          fontSize: 20,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.indigo.shade800,
-                                        ),
-                                      ),
-                                      SizedBox(height: 4),
-                                      Text(
-                                        "Review and edit the extracted information",
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: Colors.indigo.shade600,
-                                        ),
-                                      ),
-                                    ],
+                                SizedBox(height: 2),
+                                Text(
+                                  "Review and edit the extracted information",
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.indigo.shade600,
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                        );
-                      },
+                        ],
+                      ),
                     ),
 
                     // Success Message
@@ -542,20 +380,18 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
                     // Fields
                     ...fields,
 
-                    SizedBox(height: 30),
+                    SizedBox(height: 20),
 
                     // Buttons Section
-                    _buildAnimatedButton(
-                      onPressed: () {
-                        _isEditing ? _saveData() : null;
-                      },
+                    _buildButton(
+                      onPressed: _isEditing ? _saveData : null,
                       icon: Icons.save,
                       label: "Save Changes",
                       color: Colors.green,
                       isEnabled: _isEditing,
                     ),
 
-                    _buildAnimatedButton(
+                    _buildButton(
                       onPressed: _rescan,
                       icon: Icons.camera_alt,
                       label: "Rescan Image",
@@ -563,7 +399,7 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
                       isEnabled: true,
                     ),
 
-                    SizedBox(height: 30),
+                    SizedBox(height: 20),
                   ],
                 ),
               ),

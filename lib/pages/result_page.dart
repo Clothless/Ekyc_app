@@ -25,18 +25,10 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
   late AnimationController _fadeController;
   late AnimationController _slideController;
   late AnimationController _pulseController;
-  late AnimationController _rotateController;
-  late AnimationController _bounceController;
-  late AnimationController _scaleController;
   
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
   late Animation<double> _pulseAnimation;
-  late Animation<double> _rotateAnimation;
-  late Animation<double> _bounceAnimation;
-  late Animation<double> _scaleAnimation;
-
-  bool _isExpanded = false;
 
   @override
   void initState() {
@@ -44,27 +36,15 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
     
     // Initialize animation controllers
     _fadeController = AnimationController(
-      duration: Duration(milliseconds: 1500),
-      vsync: this,
-    );
-    _slideController = AnimationController(
       duration: Duration(milliseconds: 1000),
       vsync: this,
     );
-    _pulseController = AnimationController(
-      duration: Duration(milliseconds: 1500),
-      vsync: this,
-    );
-    _rotateController = AnimationController(
-      duration: Duration(seconds: 3),
-      vsync: this,
-    );
-    _bounceController = AnimationController(
+    _slideController = AnimationController(
       duration: Duration(milliseconds: 800),
       vsync: this,
     );
-    _scaleController = AnimationController(
-      duration: Duration(milliseconds: 600),
+    _pulseController = AnimationController(
+      duration: Duration(milliseconds: 2000),
       vsync: this,
     );
 
@@ -78,52 +58,25 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
     ));
 
     _slideAnimation = Tween<Offset>(
-      begin: Offset(0, 0.5),
+      begin: Offset(0, 0.3),
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _slideController,
-      curve: Curves.elasticOut,
+      curve: Curves.easeOut,
     ));
 
     _pulseAnimation = Tween<double>(
-      begin: 0.8,
-      end: 1.2,
+      begin: 0.95,
+      end: 1.05,
     ).animate(CurvedAnimation(
       parent: _pulseController,
       curve: Curves.easeInOut,
-    ));
-
-    _rotateAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _rotateController,
-      curve: Curves.linear,
-    ));
-
-    _bounceAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _bounceController,
-      curve: Curves.elasticOut,
-    ));
-
-    _scaleAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _scaleController,
-      curve: Curves.easeOutBack,
     ));
 
     // Start animations
     _fadeController.forward();
     _slideController.forward();
     _pulseController.repeat(reverse: true);
-    _rotateController.repeat();
-    _bounceController.forward();
-    _scaleController.forward();
 
     SchedulerBinding.instance.addPostFrameCallback((_) async {
       await uploadAndCompareFaces();
@@ -135,9 +88,6 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
     _fadeController.dispose();
     _slideController.dispose();
     _pulseController.dispose();
-    _rotateController.dispose();
-    _bounceController.dispose();
-    _scaleController.dispose();
     super.dispose();
   }
 
@@ -238,107 +188,70 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
         future: convertToJpeg(base64Photo),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return AnimatedBuilder(
-              animation: _rotateAnimation,
-              builder: (context, child) {
-                return Transform.rotate(
-                  angle: _rotateAnimation.value * 2 * math.pi,
-                  child: Container(
-                    width: 160,
-                    height: 200,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(20),
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.indigo.shade200,
-                          Colors.indigo.shade100,
-                          Colors.indigo.shade200,
-                        ],
-                        stops: [0.0, 0.5, 1.0],
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.indigo.withOpacity(0.4),
-                          blurRadius: 15,
-                          spreadRadius: 3,
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: Icon(
-                        Icons.person,
-                        size: 80,
-                        color: Colors.indigo.shade600,
-                      ),
-                    ),
-                  ),
-                );
-              },
+            return Container(
+              width: 140,
+              height: 180,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(15),
+                color: Colors.indigo.shade100,
+                border: Border.all(color: Colors.indigo.shade300, width: 2),
+              ),
+              child: Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.indigo.shade600),
+                ),
+              ),
             );
           } else if (snapshot.hasError) {
             return Container(
-              width: 160,
-              height: 200,
+              width: 140,
+              height: 180,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.red.shade400, width: 3),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.red.withOpacity(0.3),
-                    blurRadius: 10,
-                    spreadRadius: 2,
-                  ),
-                ],
+                borderRadius: BorderRadius.circular(15),
+                border: Border.all(color: Colors.red.shade300, width: 2),
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(17),
+                borderRadius: BorderRadius.circular(13),
                 child: Image.memory(base64Decode(base64Photo.trim())),
               ),
             );
           } else if (snapshot.hasData && snapshot.data!.isNotEmpty) {
             final decoded = base64Decode(snapshot.data!.trim());
             return Container(
-              width: 160,
-              height: 200,
+              width: 140,
+              height: 180,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(15),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.indigo.withOpacity(0.4),
-                    blurRadius: 15,
-                    spreadRadius: 3,
+                    color: Colors.indigo.withOpacity(0.2),
+                    blurRadius: 8,
+                    spreadRadius: 1,
                   ),
                 ],
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(17),
+                borderRadius: BorderRadius.circular(13),
                 child: Image.memory(decoded, fit: BoxFit.cover),
               ),
             );
           } else {
             return Container(
-              width: 160,
-              height: 200,
+              width: 140,
+              height: 180,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(15),
                 color: Colors.red.shade50,
-                border: Border.all(color: Colors.red.shade400, width: 3),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.red.withOpacity(0.3),
-                    blurRadius: 10,
-                    spreadRadius: 2,
-                  ),
-                ],
+                border: Border.all(color: Colors.red.shade300, width: 2),
               ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.error, color: Colors.red, size: 50),
-                  SizedBox(height: 12),
+                  Icon(Icons.error, color: Colors.red, size: 30),
+                  SizedBox(height: 8),
                   Text(
                     "Invalid image",
-                    style: TextStyle(color: Colors.red, fontSize: 14, fontWeight: FontWeight.w600),
+                    style: TextStyle(color: Colors.red, fontSize: 12),
                   ),
                 ],
               ),
@@ -350,184 +263,101 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
 
     // Already JPEG — render directly
     return Container(
-      width: 160,
-      height: 200,
+      width: 140,
+      height: 180,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(15),
         boxShadow: [
           BoxShadow(
-            color: Colors.indigo.withOpacity(0.4),
-            blurRadius: 15,
-            spreadRadius: 3,
+            color: Colors.indigo.withOpacity(0.2),
+            blurRadius: 8,
+            spreadRadius: 1,
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(17),
+        borderRadius: BorderRadius.circular(13),
         child: Image.memory(base64Decode(base64Photo.trim()), fit: BoxFit.cover),
       ),
     );
   }
 
   Widget _buildResultCard(String label, dynamic value, {Color? color}) {
-    return AnimatedBuilder(
-      animation: _bounceAnimation,
-      builder: (context, child) {
-        return Transform.scale(
-          scale: 0.8 + (_bounceAnimation.value * 0.2),
-          child: Container(
-            margin: EdgeInsets.symmetric(vertical: 10, horizontal: 6),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  (color ?? Colors.indigo).withOpacity(0.15),
-                  (color ?? Colors.indigo).withOpacity(0.08),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: (color ?? Colors.indigo).withOpacity(0.3),
-                width: 2,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: (color ?? Colors.indigo).withOpacity(0.2),
-                  blurRadius: 12,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: (color ?? Colors.indigo).withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          Icons.info_outline,
-                          color: (color ?? Colors.indigo).withOpacity(0.8),
-                          size: 20,
-                        ),
-                      ),
-                      SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          label,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: (color ?? Colors.indigo).withOpacity(0.8),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 12),
-                  Container(
-                    padding: EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.7),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: (color ?? Colors.indigo).withOpacity(0.2),
-                        width: 1,
-                      ),
-                    ),
-                    child: Text(
-                      value?.toString() ?? "Unknown",
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey.shade800,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+    return Container(
+      margin: EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: (color ?? Colors.indigo).withOpacity(0.2),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 4,
+            spreadRadius: 1,
           ),
-        );
-      },
+        ],
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: (color ?? Colors.indigo).shade700,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              value?.toString() ?? "Unknown",
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey.shade800,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   Widget _buildSectionHeader(String title, IconData icon, {Color? color}) {
-    return AnimatedBuilder(
-      animation: _scaleAnimation,
-      builder: (context, child) {
-        return Transform.scale(
-          scale: 0.9 + (_scaleAnimation.value * 0.1),
-          child: Container(
-            margin: EdgeInsets.symmetric(vertical: 20, horizontal: 6),
-            padding: EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  (color ?? Colors.indigo).withOpacity(0.25),
-                  (color ?? Colors.indigo).withOpacity(0.15),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(25),
-              border: Border.all(
-                color: (color ?? Colors.indigo).withOpacity(0.4),
-                width: 3,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: (color ?? Colors.indigo).withOpacity(0.3),
-                  blurRadius: 15,
-                  spreadRadius: 3,
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: (color ?? Colors.indigo).withOpacity(0.25),
-                    borderRadius: BorderRadius.circular(15),
-                    boxShadow: [
-                      BoxShadow(
-                        color: (color ?? Colors.indigo).withOpacity(0.3),
-                        blurRadius: 8,
-                        spreadRadius: 1,
-                      ),
-                    ],
-                  ),
-                  child: Icon(
-                    icon,
-                    color: (color ?? Colors.indigo).withOpacity(0.8),
-                    size: 28,
-                  ),
-                ),
-                SizedBox(width: 16),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: (color ?? Colors.indigo).withOpacity(0.8),
-                    ),
-                  ),
-                ),
-              ],
+    return Container(
+      margin: EdgeInsets.symmetric(vertical: 16, horizontal: 4),
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: (color ?? Colors.indigo).withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: (color ?? Colors.indigo).withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            color: (color ?? Colors.indigo).shade600,
+            size: 24,
+          ),
+          SizedBox(width: 12),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: (color ?? Colors.indigo).shade700,
             ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 
@@ -538,68 +368,39 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
         return Transform.scale(
           scale: _pulseAnimation.value,
           child: Container(
-            padding: EdgeInsets.all(24),
+            padding: EdgeInsets.all(20),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  isIdentityVerified.value == true 
-                      ? Colors.green.shade200 
-                      : isIdentityVerified.value == false 
-                          ? Colors.red.shade200 
-                          : Colors.orange.shade200,
-                  isIdentityVerified.value == true 
-                      ? Colors.green.shade100 
-                      : isIdentityVerified.value == false 
-                          ? Colors.red.shade100 
-                          : Colors.orange.shade100,
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(25),
+              color: isIdentityVerified.value == true 
+                  ? Colors.green.shade50 
+                  : isIdentityVerified.value == false 
+                      ? Colors.red.shade50 
+                      : Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(15),
               border: Border.all(
                 color: isIdentityVerified.value == true 
-                    ? Colors.green.shade400 
+                    ? Colors.green.shade300 
                     : isIdentityVerified.value == false 
-                        ? Colors.red.shade400 
-                        : Colors.orange.shade400,
-                width: 3,
+                        ? Colors.red.shade300 
+                        : Colors.orange.shade300,
+                width: 2,
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: (isIdentityVerified.value == true 
-                      ? Colors.green 
-                      : isIdentityVerified.value == false 
-                          ? Colors.red 
-                          : Colors.orange).withOpacity(0.4),
-                  blurRadius: 20,
-                  spreadRadius: 5,
-                ),
-              ],
             ),
             child: Column(
               children: [
-                Container(
-                  padding: EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.3),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Icon(
-                    isIdentityVerified.value == true 
-                        ? Icons.verified_user 
-                        : isIdentityVerified.value == false 
-                            ? Icons.error_outline 
-                            : Icons.pending,
-                    color: isIdentityVerified.value == true 
-                        ? Colors.green.shade700 
-                        : isIdentityVerified.value == false 
-                            ? Colors.red.shade700 
-                            : Colors.orange.shade700,
-                    size: 70,
-                  ),
+                Icon(
+                  isIdentityVerified.value == true 
+                      ? Icons.verified_user 
+                      : isIdentityVerified.value == false 
+                          ? Icons.error_outline 
+                          : Icons.pending,
+                  color: isIdentityVerified.value == true 
+                      ? Colors.green.shade600 
+                      : isIdentityVerified.value == false 
+                          ? Colors.red.shade600 
+                          : Colors.orange.shade600,
+                  size: 50,
                 ),
-                SizedBox(height: 16),
+                SizedBox(height: 12),
                 Text(
                   isIdentityVerified.value == true 
                       ? "Identity Verified" 
@@ -607,61 +408,30 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
                           ? "Identity Not Verified" 
                           : "Verifying Identity...",
                   style: TextStyle(
-                    fontSize: 20,
+                    fontSize: 16,
                     fontWeight: FontWeight.bold,
                     color: isIdentityVerified.value == true 
-                        ? Colors.green.shade800 
+                        ? Colors.green.shade700 
                         : isIdentityVerified.value == false 
-                            ? Colors.red.shade800 
-                            : Colors.orange.shade800,
+                            ? Colors.red.shade700 
+                            : Colors.orange.shade700,
                   ),
                 ),
-                SizedBox(height: 12),
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.3),
-                    borderRadius: BorderRadius.circular(15),
+                SizedBox(height: 8),
+                Text(
+                  isIdentityVerified.value == true 
+                      ? "Face comparison successful" 
+                      : isIdentityVerified.value == false 
+                          ? "Face comparison failed" 
+                          : "Processing face comparison...",
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
                   ),
-                  child: Text(
-                    isIdentityVerified.value == true 
-                        ? "Face comparison successful" 
-                        : isIdentityVerified.value == false 
-                            ? "Face comparison failed" 
-                            : "Processing face comparison...",
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade700,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
+                  textAlign: TextAlign.center,
                 ),
               ],
             ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildFloatingActionButton() {
-    return AnimatedBuilder(
-      animation: _bounceAnimation,
-      builder: (context, child) {
-        return Transform.scale(
-          scale: 0.9 + (_bounceAnimation.value * 0.1),
-          child: FloatingActionButton.extended(
-            onPressed: () {
-              setState(() {
-                _isExpanded = !_isExpanded;
-              });
-            },
-            backgroundColor: Colors.indigo.shade600,
-            foregroundColor: Colors.white,
-            elevation: 8,
-            icon: Icon(_isExpanded ? Icons.expand_less : Icons.expand_more),
-            label: Text(_isExpanded ? "Collapse" : "Expand"),
           ),
         );
       },
@@ -680,29 +450,22 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
           children: [
             // Header with photo and verification status
             Container(
-              padding: EdgeInsets.all(24),
+              padding: EdgeInsets.all(20),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Colors.indigo.shade100,
-                    Colors.white,
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(25),
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(15),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.indigo.withOpacity(0.3),
-                    blurRadius: 20,
-                    spreadRadius: 5,
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 8,
+                    spreadRadius: 1,
                   ),
                 ],
               ),
               child: Row(
                 children: [
                   _buildPhoto(),
-                  SizedBox(width: 24),
+                  SizedBox(width: 20),
                   Expanded(
                     child: _buildVerificationStatus(),
                   ),
@@ -710,7 +473,7 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
               ),
             ),
             
-            SizedBox(height: 30),
+            SizedBox(height: 20),
             
             // Personal Information Section
             _buildSectionHeader("Personal Information", Icons.person, color: Colors.blue),
@@ -728,7 +491,7 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
               _buildResultCard("Custodian", widget.result!["dg11"]["custodian"], color: Colors.blue),
             _buildResultCard("National Identification Number", widget.result!["dg11"]["personalNumber"], color: Colors.blue),
             
-            SizedBox(height: 30),
+            SizedBox(height: 20),
             
             // Document Information Section
             _buildSectionHeader("Document Information", Icons.description, color: Colors.green),
@@ -736,7 +499,7 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
             _buildResultCard("Document Number", widget.result!['dg1']["documentNumber"], color: Colors.green),
             _buildResultCard("Issuing Country", widget.result!['dg1']["issuingState"], color: Colors.green),
             
-            SizedBox(height: 30),
+            SizedBox(height: 20),
             
             // Chip Information Section
             _buildSectionHeader("Chip Information", Icons.memory, color: Colors.purple),
@@ -744,7 +507,7 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
             _buildResultCard("Unicode Version", widget.result!['com']["unicodeVersion"], color: Colors.purple),
             _buildResultCard("Data groups", widget.result!['com']["tagsList"].toString(), color: Colors.purple),
             
-            SizedBox(height: 30),
+            SizedBox(height: 20),
             
             // Document Signing Certificate Section
             _buildSectionHeader("Document Signing Certificate", Icons.security, color: Colors.orange),
@@ -758,7 +521,7 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
             _buildResultCard("Signature", base64Encode(widget.result!["sod"]['signature']), color: Colors.orange),
             _buildResultCard("Version", widget.result!["sod"]['version'], color: Colors.orange),
             
-            SizedBox(height: 30),
+            SizedBox(height: 20),
             
             // Country Signing Certificate Section
             _buildSectionHeader("Country Signing Certificate", Icons.verified, color: Colors.teal),
@@ -772,37 +535,23 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
             _buildResultCard("Signature", base64Encode(widget.result!["sod"]['signature']), color: Colors.teal),
             _buildResultCard("Version", widget.result!["sod"]['version'], color: Colors.teal),
             
-            SizedBox(height: 30),
+            SizedBox(height: 20),
             
             // Signature Section
             _buildSectionHeader("Signature", Icons.draw, color: Colors.red),
             Container(
-              margin: EdgeInsets.symmetric(vertical: 10, horizontal: 6),
-              padding: EdgeInsets.all(20),
+              margin: EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              padding: EdgeInsets.all(16),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Colors.red.shade200,
-                    Colors.red.shade100,
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(20),
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: Colors.red.shade400,
-                  width: 2,
+                  color: Colors.red.shade300,
+                  width: 1,
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.red.withOpacity(0.3),
-                    blurRadius: 12,
-                    spreadRadius: 2,
-                  ),
-                ],
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(15),
+                borderRadius: BorderRadius.circular(8),
                 child: Image.memory(
                   Uint8List.fromList(base64Decode(widget.result!['dg7']["images"][0])),
                   fit: BoxFit.cover,
@@ -810,13 +559,13 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
               ),
             ),
             
-            SizedBox(height: 30),
+            SizedBox(height: 20),
             
             // MRZ Section
             _buildSectionHeader("MRZ from chip", Icons.qr_code, color: Colors.indigo),
             _buildResultCard("", widget.result!['dg1']["fullMrz"], color: Colors.indigo),
             
-            SizedBox(height: 50),
+            SizedBox(height: 30),
           ],
         ),
       ),
@@ -832,18 +581,12 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
           style: TextStyle(
             fontWeight: FontWeight.bold,
             color: Colors.white,
-            fontSize: 20,
           ),
         ),
         centerTitle: true,
         backgroundColor: Colors.indigo.shade600,
         elevation: 0,
         iconTheme: IconThemeData(color: Colors.white),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(
-            bottom: Radius.circular(20),
-          ),
-        ),
       ),
       body: Container(
         decoration: BoxDecoration(
@@ -851,7 +594,7 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Colors.indigo.shade100,
+              Colors.indigo.shade50,
               Colors.white,
             ],
           ),
@@ -863,7 +606,6 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
           ),
         ),
       ),
-      floatingActionButton: _buildFloatingActionButton(),
     );
   }
 }
