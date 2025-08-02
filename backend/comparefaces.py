@@ -582,7 +582,7 @@ class AlgerianIDCardExtractor:
             "issueDate": self.extract_field(r"تاريخ الإصدار[:：]?\s*([0-9]{4}\.[0-9]{2}\.[0-9]{2})"),
             "expirationDate": self.extract_field(r"(تاريخ الانتهاء|تاريخ الإنتهاء|تاريخ انتهاء الصلاحية|صالحة حتى)[:：]?\s*([0-9]{4}[./-][0-9]{2}[./-][0-9]{2}|[0-9]{2}[./-][0-9]{2}[./-][0-9]{4})", group=2),
             "gender": self.extract_field(r"الجنس[:：]?\s*(ذكر|أنثى)"),
-            "rh": self.extract_field(r"Rh[:：]?\s*([ABO]{1,2}[+-]?)"),
+            "rh": self.extract_field(r"(Rh|RH|rh|Rhésus|فصيلة الدم)[:：]?\s*([ABO]{1,2}[+-]?)", group=2),
         }
         # Clean unwanted labels from values
         data["arabicLastName"] = clean_label(data["arabicLastName"], ["اللقب", "الاسم", "تاريخ الميلاد", "الجنس", "Rh", "المكان", "الإصدار", "الانتهاء"])
