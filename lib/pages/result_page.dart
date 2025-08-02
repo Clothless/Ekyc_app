@@ -310,7 +310,7 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: (color ?? Colors.indigo).shade700,
+                color: (color ?? Colors.indigo).withOpacity(0.7),
               ),
             ),
             SizedBox(height: 8),
@@ -344,7 +344,7 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
         children: [
           Icon(
             icon,
-            color: (color ?? Colors.indigo).shade600,
+            color: (color ?? Colors.indigo).withOpacity(0.6),
             size: 24,
           ),
           SizedBox(width: 12),
@@ -353,7 +353,7 @@ class widgetPageState extends State<ResultPage> with TickerProviderStateMixin {
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: (color ?? Colors.indigo).shade700,
+              color: (color ?? Colors.indigo).withOpacity(0.7),
             ),
           ),
         ],

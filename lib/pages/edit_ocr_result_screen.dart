@@ -116,7 +116,7 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
               children: [
                 Icon(
                   Icons.edit,
-                  color: (color ?? Colors.indigo).shade600,
+                  color: (color ?? Colors.indigo).withOpacity(0.6),
                   size: 20,
                 ),
                 SizedBox(width: 8),
@@ -125,7 +125,7 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: (color ?? Colors.indigo).shade700,
+                    color: (color ?? Colors.indigo).withOpacity(0.7),
                   ),
                 ),
               ],
@@ -150,7 +150,7 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide(
-                    color: (color ?? Colors.indigo).shade600,
+                    color: (color ?? Colors.indigo).withOpacity(0.6),
                     width: 2,
                   ),
                 ),
@@ -384,7 +384,9 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
 
                     // Buttons Section
                     _buildButton(
-                      onPressed: _isEditing ? _saveData : null,
+                      onPressed: () {
+                        _isEditing ? _saveData() : null;
+                      },
                       icon: Icons.save,
                       label: "Save Changes",
                       color: Colors.green,
