@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:http/http.dart' as http;
+import '../utils/error_handler.dart';
 
 class ResultPage extends StatefulWidget {
   final Map<String, dynamic>? result;
@@ -31,105 +32,91 @@ class widgetPageState extends State<ResultPage> {
   }
 
   Future<void> uploadAndCompareFaces() async {
-      try {
-        if (ResultPage.imagePath == null || ResultPage.selfiePath == null) {
-          print("Please upload both images.");
-          return;
-        }
-
-        // Create a multipart request for the face comparison
-        var comparisonRequest = http.MultipartRequest(
-          'POST',
-          Uri.parse('http://105.96.12.227:8000/compare-faces'), // FastAPI endpoint
-        );
-
-        // Add files for comparison
-        comparisonRequest.files.add(await http.MultipartFile.fromPath(
-            'idCardFace', ResultPage.imagePath!));
-        comparisonRequest.files
-            .add(await http.MultipartFile.fromPath('selfie', ResultPage.selfiePath!));
-
-        // Send the request
-        var comparisonResponse = await comparisonRequest.send();
-        final comparisonRespStr = await comparisonResponse.stream.bytesToString();
-        final comparisonResponseData = jsonDecode(comparisonRespStr);
-
-        if (comparisonResponse.statusCode != 200) {
-          setState(() {
-            isIdentityVerified.value = false;
-          });
-          return;
-        }
-
-        final String message = comparisonResponseData['message'] ?? 'No message';
-        final bool isVerified = comparisonResponseData['verified'] ?? false;
-
-        setState(() {
-          isIdentityVerified.value = isVerified;
-        });
-      } catch (e) {
-        print('Error during face comparison: $e');
-        setState(() {
-          isIdentityVerified.value = false;
-        });
+    try {
+      if (ResultPage.imagePath == null || ResultPage.selfiePath == null) {
+        print("Please upload both images.");
+        return;
       }
+
+      final responseData = await ServerErrorHandler.sendRequest(
+        endpoint: '/compare-faces',
+        fields: {},
+        files: [
+          {
+            'fieldName': 'idCardFace',
+            'filePath': ResultPage.imagePath!,
+          },
+          {
+            'fieldName': 'selfie',
+            'filePath': ResultPage.selfiePath!,
+          },
+        ],
+        context: context,
+        successMessage: 'Face comparison completed!',
+      );
+
+      final String message = responseData['message'] ?? 'No message';
+      final bool isVerified = responseData['verified'] ?? false;
+
+      setState(() {
+        isIdentityVerified.value = isVerified;
+      });
+    } catch (e) {
+      print('Error during face comparison: $e');
+      setState(() {
+        isIdentityVerified.value = false;
+      });
     }
+  }
 
   Future<void> extractArabicText() async {
-      try {
-        if (ResultPage.imagePath == null || ResultPage.selfiePath == null) {
-          print("Please upload both images.");
-          return;
-        }
-
-        // Create a multipart request for the face comparison
-        var comparisonRequest = http.MultipartRequest(
-          'POST',
-          Uri.parse('http://105.96.12.227:8000/extract-text'), // FastAPI endpoint
-        );
-
-        // Add files for comparison
-        comparisonRequest.files.add(await http.MultipartFile.fromPath(
-            'image', ResultPage.imagePath!));
-
-
-        // Send the request
-        var comparisonResponse = await comparisonRequest.send();
-        final comparisonRespStr = await comparisonResponse.stream.bytesToString();
-        final comparisonResponseData = jsonDecode(comparisonRespStr);
-
-        if (comparisonResponse.statusCode != 200) {
-          setState(() {
-            isIdentityVerified.value = false;
-          });
-          return;
-        }
-
-        final String message = comparisonResponseData['message'] ?? 'No message';
-        final bool isVerified = comparisonResponseData['verified'] ?? false;
-
-        setState(() {
-          isIdentityVerified.value = isVerified;
-        });
-      } catch (e) {
-        print('Error during face comparison: $e');
-        setState(() {
-          isIdentityVerified.value = false;
-        });
+    try {
+      if (ResultPage.imagePath == null) {
+        print("Please upload an image.");
+        return;
       }
+
+      final responseData = await ServerErrorHandler.sendRequest(
+        endpoint: '/extract-text',
+        fields: {},
+        files: [
+          {
+            'fieldName': 'image',
+            'filePath': ResultPage.imagePath!,
+          },
+        ],
+        context: context,
+        successMessage: 'Text extraction completed!',
+      );
+
+      final String message = responseData['message'] ?? 'No message';
+      final bool isVerified = responseData['verified'] ?? false;
+
+      setState(() {
+        isIdentityVerified.value = isVerified;
+      });
+    } catch (e) {
+      print('Error during text extraction: $e');
+      setState(() {
+        isIdentityVerified.value = false;
+      });
     }
+  }
 
   Future<String> convertToJpeg(String image) async {
-    var response = await http.post(
-      Uri.parse('http://105.96.12.227:8000/convert'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'jp2_base64': image}),
-    );
+    try {
+      final responseData = await ServerErrorHandler.sendSimpleRequest(
+        endpoint: '/convert',
+        data: jsonEncode({'jp2_base64': image}),
+        context: context,
+        successMessage: 'Image converted successfully!',
+      );
 
-    if (response.statusCode == 200) {
-      return response.body.toString().split("\"")[1];
+      return responseData.toString().split("\"")[1];
+    } catch (e) {
+      print('Convert Error: $e');
+      return "";
     }
-    return "";
   }
 
   Widget _buildPhoto() {

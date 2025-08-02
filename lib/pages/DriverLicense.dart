@@ -20,6 +20,7 @@ import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import '../utils/error_handler.dart';
 
 class Driverlicense extends StatefulWidget {
   final String documentType;
@@ -744,33 +745,25 @@ String _extractGivenName(String text) {
         return;
       }
 
-      // Create a multipart request for the face comparison
-      var comparisonRequest = http.MultipartRequest(
-        'POST',
-        Uri.parse('http://105.96.12.227:8000/compare-faces'), // FastAPI endpoint
+      final responseData = await ServerErrorHandler.sendRequest(
+        endpoint: '/compare-faces',
+        fields: {},
+        files: [
+          {
+            'fieldName': 'idCardFace',
+            'filePath': _extractedPhoto!.path,
+          },
+          {
+            'fieldName': 'selfie',
+            'filePath': _selfiePath!,
+          },
+        ],
+        context: context,
+        successMessage: 'Face comparison completed!',
       );
 
-      // Add files for comparison
-      comparisonRequest.files.add(await http.MultipartFile.fromPath(
-          'idCardFace', _extractedPhoto!.path));
-      comparisonRequest.files
-          .add(await http.MultipartFile.fromPath('selfie', _selfiePath!));
-
-      // Send the request
-      var comparisonResponse = await comparisonRequest.send();
-      final comparisonRespStr = await comparisonResponse.stream.bytesToString();
-      final comparisonResponseData = jsonDecode(comparisonRespStr);
-
-      if (comparisonResponse.statusCode != 200) {
-        setState(() {
-          _comparisonResult =
-              'Erreur: ${comparisonResponseData['error'] ?? 'Unknown error'}';
-        });
-        return;
-      }
-
-      final String message = comparisonResponseData['message'] ?? 'No message';
-      final bool isVerified = comparisonResponseData['verified'] ?? false;
+      final String message = responseData['message'] ?? 'No message';
+      final bool isVerified = responseData['verified'] ?? false;
 
       setState(() {
         _comparisonResult = message;
@@ -819,59 +812,43 @@ String _extractGivenName(String text) {
     setState(() => _isProcessing = true);
 
     try {
-      var request = http.MultipartRequest(
-        'POST',
-        Uri.parse('http://105.96.12.227:5000/save-id-card'),
-      );
-
-      request.fields.addAll({
-        'family_name': _nomController.text,
-        'given_name': _prenomController.text,
-        'identity_number': _ninController.text,
-        'card_number': _cnumberController.text,
-        'birthdate': _birthDateController.text,
-        'expiryDate': _enddateController.text,
-        'document_type': 'Driving License',
-      });
-
-      request.files
-          .add(await http.MultipartFile.fromPath('idCardFront', _frontIdPath!));
-      request.files.add(await http.MultipartFile.fromPath(
-          'idCardFace', _extractedPhoto!.path));
-      request.files
-          .add(await http.MultipartFile.fromPath('selfie', _selfiePath!));
-
-      showDialog(
+      final responseData = await ServerErrorHandler.sendRequest(
+        endpoint: '/save-id-card',
+        fields: {
+          'family_name': _nomController.text,
+          'given_name': _prenomController.text,
+          'identity_number': _ninController.text,
+          'card_number': _cnumberController.text,
+          'birthdate': _birthDateController.text,
+          'expiryDate': _enddateController.text,
+          'document_type': 'Driving License',
+        },
+        files: [
+          {
+            'fieldName': 'idCardFront',
+            'filePath': _frontIdPath!,
+          },
+          {
+            'fieldName': 'idCardFace',
+            'filePath': _extractedPhoto!.path,
+          },
+          {
+            'fieldName': 'selfie',
+            'filePath': _selfiePath!,
+          },
+        ],
         context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
+        successMessage: 'Registration successful!',
       );
 
-      var response = await request.send();
-      final respStr = await response.stream.bytesToString();
-      final responseData = jsonDecode(respStr);
-      Navigator.pop(context);
-
-      if (response.statusCode == 200 && responseData['success'] == true) {
+      if (responseData['success'] == true) {
         _showCustomSnackbar('Registration successful!', success: true);
-      } else if (response.statusCode == 400) {
-        if (responseData['message'].contains('already exists')) {
-          _showCustomDialog(
-            title: "Duplicate detected",
-            message:
-                "This identity number already exist for: ${_formData['document_type']}",
-            icon: Icons.warning,
-            iconColor: Colors.orange,
-          );
-        } else {
-          _showCustomSnackbar('Error: ${responseData['message']}');
-        }
       } else {
-        _showCustomSnackbar('Uknown Error: $respStr');
+        _showCustomSnackbar('Error: ${responseData['message'] ?? 'Unknown error'}');
       }
     } catch (e) {
-      Navigator.pop(context);
-      _showCustomSnackbar('Network Error: ${e.toString()}');
+      print('Save Driver License Error: $e');
+      // Error is already handled by ServerErrorHandler
     } finally {
       setState(() => _isProcessing = false);
     }

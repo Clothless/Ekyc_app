@@ -22,6 +22,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
 import 'result_page.dart';
+import '../utils/error_handler.dart';
 
 class Idcard extends StatefulWidget {
   final String documentType;
@@ -209,21 +210,19 @@ class _IdcardState extends State<Idcard> {
   }
 
   Future<String> convertToJpeg(String image) async {
-    var comparisonRequest = http.MultipartRequest(
-      'POST',
-      Uri.parse('http://105.96.12.227:8000/convert'), // FastAPI endpoint
-    );
-    comparisonRequest.fields.addAll({
-      'jp2_base64': image,
-    });
-    var comparisonResponse = await comparisonRequest.send();
-    final comparisonRespStr = await comparisonResponse.stream.bytesToString();
-    final comparisonResponseData = jsonDecode(comparisonRespStr);
+    try {
+      final responseData = await ServerErrorHandler.sendSimpleRequest(
+        endpoint: '/convert',
+        data: jsonEncode({'jp2_base64': image}),
+        context: context,
+        successMessage: 'Image converted successfully!',
+      );
 
-    if (comparisonResponse.statusCode != 200) {
-      return comparisonResponseData;
+      return responseData.toString();
+    } catch (e) {
+      print('Convert Error: $e');
+      return "";
     }
-    return "";
   }
 
   Widget _buildPhoto() {
@@ -1063,59 +1062,43 @@ class _IdcardState extends State<Idcard> {
     setState(() => _isProcessing = true);
 
     try {
-      var request = http.MultipartRequest(
-        'POST',
-        Uri.parse('http://105.96.12.227:5000/save-id-card'),
-      );
-
-      request.fields.addAll({
-        'family_name': _nomController.text,
-        'given_name': _prenomController.text,
-        'identity_number': _ninController.text,
-        'card_number': _cnumberController.text,
-        'birthdate': _birthDateController.text,
-        'expiryDate': _enddateController.text,
-        'document_type': 'ID Card',
-      });
-
-      request.files
-          .add(await http.MultipartFile.fromPath('idCardFront', _frontIdPath!));
-      request.files.add(await http.MultipartFile.fromPath(
-          'idCardFace', _extractedPhoto!.path));
-      request.files
-          .add(await http.MultipartFile.fromPath('selfie', _selfiePath!));
-
-      showDialog(
+      final responseData = await ServerErrorHandler.sendRequest(
+        endpoint: '/save-id-card',
+        fields: {
+          'family_name': _nomController.text,
+          'given_name': _prenomController.text,
+          'identity_number': _ninController.text,
+          'card_number': _cnumberController.text,
+          'birthdate': _birthDateController.text,
+          'expiryDate': _enddateController.text,
+          'document_type': 'ID Card',
+        },
+        files: [
+          {
+            'fieldName': 'idCardFront',
+            'filePath': _frontIdPath!,
+          },
+          {
+            'fieldName': 'idCardFace',
+            'filePath': _extractedPhoto!.path,
+          },
+          {
+            'fieldName': 'selfie',
+            'filePath': _selfiePath!,
+          },
+        ],
         context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
+        successMessage: 'Registration successful!',
       );
 
-      var response = await request.send();
-      final respStr = await response.stream.bytesToString();
-      final responseData = jsonDecode(respStr);
-      Navigator.pop(context);
-
-      if (response.statusCode == 200 && responseData['success'] == true) {
+      if (responseData['success'] == true) {
         _showCustomSnackbar('Registration successful!', success: true);
-      } else if (response.statusCode == 400) {
-        if (responseData['message'].contains('already exists')) {
-          _showCustomDialog(
-            title: "Duplicate detected",
-            message:
-                "This identity number already exist for: ${_formData['document_type']}",
-            icon: Icons.warning,
-            iconColor: Colors.orange,
-          );
-        } else {
-          _showCustomSnackbar('Error: ${responseData['message']}');
-        }
       } else {
-        _showCustomSnackbar('Uknown Error: $respStr');
+        _showCustomSnackbar('Error: ${responseData['message'] ?? 'Unknown error'}');
       }
     } catch (e) {
-      Navigator.pop(context);
-      _showCustomSnackbar('Network Error: ${e.toString()}');
+      print('Save ID Card Error: $e');
+      // Error is already handled by ServerErrorHandler
     } finally {
       setState(() => _isProcessing = false);
     }

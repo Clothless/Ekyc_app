@@ -185,16 +185,19 @@ class _PassportState extends State<Passport> {
   }
 
   Future<String> convertToJpeg(String image) async {
-    var response = await http.post(
-      Uri.parse('http://105.96.12.227:8000/convert'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'jp2_base64': image}),
-    );
+    try {
+      final responseData = await ServerErrorHandler.sendSimpleRequest(
+        endpoint: '/convert',
+        data: jsonEncode({'jp2_base64': image}),
+        context: context,
+        successMessage: 'Image converted successfully!',
+      );
 
-    if (response.statusCode == 200) {
-      return response.body.toString().split("\"")[1];
+      return responseData.toString().split("\"")[1];
+    } catch (e) {
+      print('Convert Error: $e');
+      return "";
     }
-    return "";
   }
 
   Future<void> _verificationFront(String text) async {

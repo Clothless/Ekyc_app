@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 
 import 'pages/edit_ocr_result_screen.dart';
+import 'utils/error_handler.dart';
 
 void main() {
   runApp(MyApp());
@@ -730,29 +731,30 @@ class _OCRScreenState extends State<OCRScreen>
   Future<void> _sendToServer(File image) async {
     setState(() => _loading = true);
 
-    final request = http.MultipartRequest('POST',
-        Uri.parse('http://105.96.12.227:8000/extract-text-algerian-id'));
-    request.files
-        .add(await http.MultipartFile.fromPath('image', image.path));
+    try {
+      final responseData = await ServerErrorHandler.sendRequest(
+        endpoint: '/extract-text-algerian-id',
+        fields: {},
+        files: [
+          {
+            'fieldName': 'image',
+            'filePath': image.path,
+          },
+        ],
+        context: context,
+        successMessage: 'Text extracted successfully!',
+      );
 
-    var response = await request.send();
-    final respStr = await response.stream.bytesToString();
-    final responseData = jsonDecode(respStr);
-
-    if (response.statusCode == 200) {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => EditOCRResultScreen(data: responseData)),
       );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Failed to extract text."),
-          backgroundColor: Colors.red,
-        ),
-      );
+    } catch (e) {
+      // Error is already handled by ServerErrorHandler
+      print('OCR Error: $e');
+    } finally {
+      setState(() => _loading = false);
     }
-    setState(() => _loading = false);
   }
 
   @override
