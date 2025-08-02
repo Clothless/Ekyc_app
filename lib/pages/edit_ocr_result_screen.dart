@@ -178,9 +178,20 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
   }
 
   String _formatLabel(String key) {
-    return key
-        .replaceAll('_', ' ')
-        .replaceFirstMapped(RegExp(r'^[a-z]'), (m) => m.group(0)!.toUpperCase());
+    // First, replace underscores with spaces
+    String formatted = key.replaceAll('_', ' ');
+    
+    // Handle camelCase by adding spaces before capital letters
+    formatted = formatted.replaceAllMapped(
+      RegExp(r'([a-z])([A-Z])'),
+      (match) => '${match.group(1)} ${match.group(2)}',
+    );
+    
+    // Capitalize the first letter of each word
+    return formatted.split(' ').map((word) {
+      if (word.isEmpty) return word;
+      return word[0].toUpperCase() + word.substring(1).toLowerCase();
+    }).join(' ');
   }
 
   void _rescan() {
