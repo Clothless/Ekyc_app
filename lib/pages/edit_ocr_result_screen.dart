@@ -546,7 +546,9 @@ class _EditOCRResultScreenState extends State<EditOCRResultScreen>
 
                     // Buttons Section
                     _buildAnimatedButton(
-                      onPressed: _isEditing ? _saveData : null,
+                      onPressed: () {
+                        _isEditing ? _saveData() : null;
+                      },
                       icon: Icons.save,
                       label: "Save Changes",
                       color: Colors.green,
