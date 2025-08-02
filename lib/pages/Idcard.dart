@@ -213,7 +213,7 @@ class _IdcardState extends State<Idcard> {
     try {
       final responseData = await ServerErrorHandler.sendSimpleRequest(
         endpoint: '/convert',
-        data: jsonEncode({'jp2_base64': image}),
+        data: {'jp2_base64': image},
         context: context,
         successMessage: 'Image converted successfully!',
       );

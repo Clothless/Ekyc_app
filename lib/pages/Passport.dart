@@ -23,6 +23,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
+import '../utils/error_handler.dart';
 import 'result_page.dart';
 
 class Passport extends StatefulWidget {
@@ -188,7 +189,7 @@ class _PassportState extends State<Passport> {
     try {
       final responseData = await ServerErrorHandler.sendSimpleRequest(
         endpoint: '/convert',
-        data: jsonEncode({'jp2_base64': image}),
+        data: {'jp2_base64': image},
         context: context,
         successMessage: 'Image converted successfully!',
       );
