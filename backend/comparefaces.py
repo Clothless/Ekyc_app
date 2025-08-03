@@ -573,15 +573,15 @@ class AlgerianIDCardExtractor:
                 value = value.replace(label, '').strip()
             return value
         data = {
-            "nationalIdentificationNumber": self.extract_field(r"رقم التعريف الوطني[:：]?\s*([0-9]{10,20})"),
+            "nationalIdentificationNumber": self.extract_field(r"(Personal No |رقم التعريف الوطني|رقم التعريف الوطني: )[:：]?\s*([0-9]{10,20})"),
             "cardNumber": self.extract_field(r"([0-9]{8,12})", group=1),
-            "arabicLastName": self.extract_field(r"اللقب[:：]?\s*([أ-ي\s]+)"),
-            "arabicFirstName": self.extract_field(r"الاسم[:：]?\s*([أ-ي\s]+)"),
-            "birthDate": self.extract_field(r"تاريخ الميلاد[:：]?\s*([0-9]{4}\.[0-9]{2}\.[0-9]{2})"),
-            "placeOfBirth": self.extract_field(r"مكان الميلاد[:：]?\s*([أ-ي\s]+)"),
-            "issueDate": self.extract_field(r"تاريخ الإصدار[:：]?\s*([0-9]{4}\.[0-9]{2}\.[0-9]{2})"),
-            "expirationDate": self.extract_field(r"(تاريخ الانتهاء|تاريخ الإنتهاء|تاريخ انتهاء الصلاحية|صالحة حتى)[:：]?\s*([0-9]{4}[./-][0-9]{2}[./-][0-9]{2}|[0-9]{2}[./-][0-9]{2}[./-][0-9]{4})", group=2),
-            "gender": self.extract_field(r"الجنس[:：]?\s*(ذكر|أنثى)"),
+            "arabicLastName": self.extract_field(r"Surname |اللقب[:：]?\s*([أ-ي\s]+)"),
+            "arabicFirstName": self.extract_field(r"Given names |الاسم[:：]?\s*([أ-ي\s]+)"),
+            "birthDate": self.extract_field(r"Date of birth |تاريخ الميلاد[:：]?\s*([0-9]{4}\.[0-9]{2}\.[0-9]{2})"),
+            "placeOfBirth": self.extract_field(r"Place of birth |مكان الميلاد[:：]?\s*([أ-ي\s]+)"),
+            "issueDate": self.extract_field(r"Date of Issue |تاريخ الإصدار[:：]?\s*([0-9]{4}\.[0-9]{2}\.[0-9]{2})"),
+            "expirationDate": self.extract_field(r"(Date d'expiration |تاريخ الانتهاء|تاريخ الإنتهاء|تاريخ انتهاء الصلاحية|صالحة حتى)[:：]?\s*([0-9]{4}[./-][0-9]{2}[./-][0-9]{2}|[0-9]{2}[./-][0-9]{2}[./-][0-9]{4})", group=2),
+            "gender": self.extract_field(r"(Sex |الجنس)[:：]?\s*(ذكر|أنثى)"),
             "rh": self.extract_field(r"(Rh|RH|rh|Rhésus|فصيلة الدم)[:：]?\s*([ABO]{1,2}[+-]?)", group=2),
         }
         # Clean unwanted labels from values
@@ -627,6 +627,8 @@ async def extract_text_algerian_id(
         extractor = AlgerianIDCardExtractor(arabic_text)
         extracted = extractor.extract()
         extracted["rawText"] = arabic_text
+        print("[DEBUG] Extracted data:", extracted, end="\n")
+        print("[DEBUG] Full OCR text:", arabic_text)  # Debug log
         return JSONResponse(content=extracted)
     except Exception as e:
         traceback.print_exc()
